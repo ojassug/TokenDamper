@@ -657,6 +657,14 @@ export function splitRegionIntoStatements(
 
   const minBytes = options?.minRegionBytes ?? MIN_REGION_BYTES;
   const text = item.content.slice(region.start, region.end);
+  // A C or C# body holding a preprocessor line is not divided (DECISIONS §86). The splitter knows
+  // nothing of directives, and measured on Newtonsoft.Json it elided an `#if` with the statements
+  // after it and left the `#endif` glued to the marker — mid-line, where neither lexer reads a
+  // directive, so the broken group passed the post-condition check and only drift caught it. The
+  // whole body stays the unit: its interior holds complete groups, so removing it is balanced.
+  if (isDeepOnlyLanguage(language) && /^[ \t]*#/m.test(text)) {
+    return [];
+  }
   // C and C# end statements with `;` and open blocks with `{`, which is the TypeScript
   // splitter's grammar; anything it mis-divides fails the lexer and falls back.
   const spans =

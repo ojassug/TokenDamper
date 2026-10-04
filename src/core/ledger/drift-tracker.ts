@@ -1,5 +1,6 @@
 import { extractProseRegions } from '../constraints/directives';
 import type { ContentType, ContextBundle, ContextItem } from '../model';
+import { ELISION_MARKER_PATTERN } from '../elision/marker';
 import { deepOnlyBackend } from '../parser/deep-only';
 import { DEFAULT_ENGINE_MODE, type EngineMode } from '../parser/mode';
 
@@ -486,6 +487,9 @@ export class DriftTracker {
    * reading it zero times, so a union of per-item sets is the set it used to accumulate.
    */
   public extractItemSymbols(item: ContextItem): Set<string> {
+    const deepOnly = this.deepOnlySymbols(item);
+    if (deepOnly) return deepOnly;
+
     const symbols = new Set<string>();
     const content = item.content;
     const fnNames = new Set<string>();
@@ -649,18 +653,29 @@ export class DriftTracker {
       }
     }
 
-    // 10. C and C# (R4, DECISIONS §85). Their function symbols come from their Deep backend,
-    // because no regex above can harvest a C function or most C# methods — so before this, a C
-    // file's only symbols were incidental `type:` matches that survive body elision by
-    // construction, which is §56's unmeasured-elision hazard exactly. Deep mode only, and deep-only
-    // languages only: TypeScript, Python and Go keep their regexes in both modes, so no existing
-    // drift score moves. Whether Deep's symbols should replace those regexes is §79's open question
-    // and stays open.
-    const backend = deepOnlyBackend(item, this.engineMode);
-    if (backend) {
-      for (const symbol of backend.symbols(content)) symbols.add(symbol);
-    }
     return symbols;
+  }
+
+  /**
+   * C and C# in deep mode (R4, DECISIONS §85–§86): the backend's function names, and nothing from
+   * the regexes above.
+   *
+   * §85 first **unioned** the two. The regexes were written for TypeScript, Python and Go, and on C
+   * they read body code as declarations — `struct curl_slist *list;` inside a function yields
+   * `type:curl_slist`, and Python's `def` rule reads `#ifndef X_H` as `fn:X_H` — so body elision
+   * "lost" symbols it had never touched: 101 of curl's 126 drift fallbacks (§86). C and C# have no
+   * baseline to move, so they take the backend's names alone. TypeScript, Python and Go keep their
+   * regexes in both modes; whether Deep's symbols should replace those is §79's open question.
+   *
+   * **Markers are stripped before the backend reads.** A marker reads to the C# grammar as an
+   * attribute (`[target: …]`), and with several in a namespaced file its error recovery turns the
+   * whole namespace into one ERROR node, so every method name "vanished" — most of jellyfin's 131
+   * drift fallbacks (§86). Removing the marker witnesses the same thing: a region that swallowed a
+   * header still loses that function's name, because the header text is gone either way.
+   */
+  private deepOnlySymbols(item: ContextItem): Set<string> | undefined {
+    const backend = deepOnlyBackend(item, this.engineMode);
+    return backend ? backend.symbols(item.content.replace(ELISION_MARKER_PATTERN, '')) : undefined;
   }
 
   /**

@@ -42,10 +42,12 @@ describe('drift symbols for C', () => {
     expect([...new DriftTracker().extractItemSymbols(cItem)].sort()).toEqual(['type:P']);
   });
 
-  it('deep mode adds the function, so deleting it is witnessed', () => {
+  it('deep mode takes the function from the backend, so deleting it is witnessed', () => {
     register();
     const deep = new DriftTracker({ engineMode: 'deep' });
-    expect([...deep.extractItemSymbols(cItem)].sort()).toEqual(['fn:area', 'type:P']);
+    // The backend's names alone since §86 — §85 unioned them with the regex, whose `type:P`
+    // survives any body elision and whose reading of C body code invented symbols.
+    expect([...deep.extractItemSymbols(cItem)].sort()).toEqual(['fn:area']);
 
     const before = createContextBundle(C, 'file', 'a.c');
     const after = createContextBundle('struct P { int x; };\n', 'file', 'a.c');

@@ -13,6 +13,7 @@ import {
 } from '../../core/elision';
 import { ceilingReached, resolveTokenCeiling } from '../../core/budget';
 import { DriftTracker } from '../../core/ledger/drift-tracker';
+import { deepOnlyBackend } from '../../core/parser/deep-only';
 import { TokenHasher } from '../../core/hashing/token-hasher';
 import { DEFAULT_TOKENIZER, estimateBundleTokens, type TokenizerAdapter } from '../../core/hashing/tokenizer';
 
@@ -263,6 +264,17 @@ export function runTokenHashingStage(
     // truncated code are exactly the population this path was written for, and `R_AST` has
     // nothing to score there. That case is governed by the measurement gate (§37) instead.
     if (hasExtractableSymbols(item, options?.mode ?? 'fast')) {
+      itemsSkipped += 1;
+      skipReasons.no_savings += 1;
+      return item;
+    }
+
+    // A deep-only language (C, C#) in deep mode is never elided whole — DECISIONS §86, by §43's
+    // reasoning. Its symbols are the backend's function names alone, so a header of prototypes is
+    // symbol-free, and whole-item elision of symbol-free code can only end in the measurement
+    // gate's refusal (§33): attempting it manufactures a fallback and emits the input anyway.
+    // Fast mode is untouched, so no existing row moves.
+    if (deepOnlyBackend(item, options?.mode ?? 'fast')) {
       itemsSkipped += 1;
       skipReasons.no_savings += 1;
       return item;
