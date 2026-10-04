@@ -707,11 +707,49 @@ export function splitRegionIntoStatements(
   return Object.freeze(usable);
 }
 
+/** The offset of the first byte at or after `from` that is not whitespace or a comment. */
+function skipTrivia(text: string, from: number): number {
+  let i = from;
+  for (;;) {
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (text.startsWith('//', i)) {
+      const end = text.indexOf('\n', i);
+      i = end < 0 ? text.length : end;
+    } else if (text.startsWith('/*', i)) {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 ? text.length : end + 2;
+    } else {
+      return i;
+    }
+  }
+}
+
+/**
+ * Whether the statement that began at `start` goes on past the block or `;` ending at `from`.
+ *
+ * **A `}` at depth 0 ends a block, not always a statement** (DECISIONS §86). `if {…} else {…}`,
+ * `try {…} catch {…} finally {…}` and `do {…} while (…);` are one statement each, and so is a
+ * braceless `if (x) a(); else b();`. Cut between the parts, and eliding the first leaves an
+ * `else`, `catch`, `finally` or `while` attached to a marker. Brackets still balance, so no lexer
+ * objects; measured, a C# grammar re-reading such output loses the enclosing class, and every
+ * method in it reads as gone. TypeScript made the same cut from §50 until §86, unseen because
+ * nothing re-reads its output. A braceless `do x(); while (y);` is not handled.
+ */
+function continuesStatement(text: string, from: number, start: number, afterBlock: boolean): boolean {
+  const at = skipTrivia(text, from);
+  const word = /^[A-Za-z_]\w*/.exec(text.slice(at, at + 8))?.[0];
+  if (word === 'else') return true;
+  if (!afterBlock) return false;
+  if (word === 'catch' || word === 'finally') return true;
+  return word === 'while' && /^do\b/.test(text.slice(skipTrivia(text, start), from));
+}
+
 /**
  * Statement boundaries in a TypeScript/JavaScript body, as offsets into `text`.
  *
  * The lexical states mirror `scanBraceSpans`; see its note on why regex literals are tracked
- * here even though `TypeScriptValidator` does not track them.
+ * here even though `TypeScriptValidator` does not track them. A compound statement stays whole
+ * (`continuesStatement`).
  */
 function splitTypeScriptStatements(text: string): ReadonlyArray<ElisionRegion> {
   const spans: ElisionRegion[] = [];
@@ -803,12 +841,14 @@ function splitTypeScriptStatements(text: string): ReadonlyArray<ElisionRegion> {
       depth--;
       prevSignificant = char;
       if (depth === 0 && char === '}') {
+        if (continuesStatement(text, i + 1, start, true)) continue;
         i = throughLineEnd(i + 1) - 1;
         push(i + 1);
       }
       continue;
     }
     if (char === ';' && depth === 0) {
+      if (continuesStatement(text, i + 1, start, false)) continue;
       i = throughLineEnd(i + 1) - 1;
       push(i + 1);
       continue;
@@ -917,11 +957,18 @@ function splitGoStatements(text: string): ReadonlyArray<ElisionRegion> {
   return spans;
 }
 
+/** A clause continuing the compound statement above it (§86). Matches `except*` too. */
+const PYTHON_CLAUSE = /^(?:else|elif|except|finally)\b/;
+
 /**
  * Statement boundaries in a Python body, as offsets into `text`.
  *
  * Spans begin after the line's indentation and end at the last non-blank line's end, excluding
  * its newline — the boundary `scanPythonDefBodies` establishes and documents.
+ *
+ * A base-indent `else`, `elif`, `except` or `finally` continues the statement above it rather
+ * than starting one (DECISIONS §86, `continuesStatement`'s rule for braces). Splitting there let
+ * an `if` be elided while its `else:` stayed behind, attached to the marker.
  */
 function splitPythonStatements(text: string): ReadonlyArray<ElisionRegion> {
   const lines = text.split('\n');
@@ -950,7 +997,7 @@ function splitPythonStatements(text: string): ReadonlyArray<ElisionRegion> {
     const line = lines[i]!;
     const lineEnd = offset + line.length + 1;
     const blank = line.trim().length === 0;
-    const continues = depth > 0 || triple !== null;
+    const continues = depth > 0 || triple !== null || (i > 0 && PYTHON_CLAUSE.test(line.trimStart()));
 
     if (!blank && !continues && (i === 0 || indentOf(line) === base)) {
       if (start !== null) spans.push({ start, end: lastEnd });

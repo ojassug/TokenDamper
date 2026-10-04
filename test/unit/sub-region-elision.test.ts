@@ -279,6 +279,90 @@ describe('a region divides into the statements it is made of', () => {
   });
 });
 
+describe('a compound statement is one span (§86)', () => {
+  // From §50 until §86 a span ended at any `}` returning depth to 0, and Python's at any
+  // base-indent line. So `if {…}` and `else {…}` were two spans, and eliding the first left the
+  // `else` attached to a marker — balanced, so no lexer objected. Each case here fails against
+  // that splitter.
+  const TS_COMPOUND = `export function settle(order: Order): number {
+  let total = 0;
+  if (order.items.length > 0) {
+    total = order.items.reduce((sum, line) => sum + line.price, 0);
+  }
+  else {
+    total = order.fallbackPrice;
+  }
+  try {
+    total = applyDiscount(total, order.code);
+  } catch (error) {
+    log(error);
+  } finally {
+    audit(order.id);
+  }
+  do {
+    total = total - 1;
+  } while (total > order.ceiling);
+  if (order.rush) total += 5; else total += 1;
+  return total;
+}
+`;
+
+  const PY_COMPOUND = `def settle(order):
+    total = 0
+    if order.items:
+        total = sum(line.price for line in order.items)
+    elif order.fallback:
+        total = order.fallback
+    else:
+        total = -1
+    try:
+        total = apply_discount(total, order.code)
+    except ValueError as error:
+        log(error)
+    else:
+        audit(order)
+    finally:
+        close(order)
+    for line in order.items:
+        total -= line.refund
+    else:
+        total += 0
+    return total
+`;
+
+  /** The clause keyword directly after each span: each one an orphan once that span is elided. */
+  function orphanedClauses(source: string, path: string, clause: RegExp): string[] {
+    const target = item(source, path);
+    const region = dominantRegion(source, path);
+    const spans = splitRegionIntoStatements(target, region, { minRegionBytes: 1 });
+    expect(spans.length).toBeGreaterThan(1); // an undivided body orphans nothing, vacuously
+    return spans
+      .map((span) => clause.exec(source.slice(span.end, region.end))?.[1])
+      .filter((word): word is string => word !== undefined);
+  }
+
+  it('TypeScript keeps else, catch, finally and a do-while together', () => {
+    expect(orphanedClauses(TS_COMPOUND, 'settle.ts', /^\s*(else|catch|finally|while)\b/)).toEqual([]);
+  });
+
+  it('Python keeps elif, else, except and finally with the statement above them', () => {
+    expect(orphanedClauses(PY_COMPOUND, 'settle.py', /^\s*(else|elif|except|finally)\b/)).toEqual([]);
+  });
+
+  it('still divides the statements around them', () => {
+    for (const [source, path] of [
+      [TS_COMPOUND, 'settle.ts'],
+      [PY_COMPOUND, 'settle.py'],
+    ] as const) {
+      const target = item(source, path);
+      const spans = splitRegionIntoStatements(target, dominantRegion(source, path), { minRegionBytes: 1 });
+      const texts = spans.map((span) => source.slice(span.start, span.end));
+      expect(texts.some((text) => /^(?:let total = 0;|total = 0)/.test(text.trim()))).toBe(true);
+      expect(texts.some((text) => /^return total;?$/.test(text.trim()))).toBe(true);
+    }
+  });
+});
+
 describe('splicing the spans back is safe', () => {
   it('removing any single span introduces no new AST issues', () => {
     for (const [source, path] of [

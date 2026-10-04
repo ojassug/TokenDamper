@@ -5,12 +5,17 @@ import type { DeepRegion } from './regions';
 /**
  * C and C# for the Deep backend (R4, spec §4.3–§4.4, DECISIONS §85–§86).
  *
- * **One rule decides both symbols and regions: a declaration whose body is a `{ … }` block.**
- * Regions are those blocks' interiors. Symbols are those declarations' names, and nothing else —
- * not prototypes, not abstract or interface members, not expression-bodied members, and not
- * types, which the shared regex already harvests. A symbol for a declaration elision cannot touch
- * would survive every transform by construction, raising `R_AST` and lowering `S_k` for the same
- * loss — §59's falling drift score, the hazard this package was built to avoid.
+ * **Regions are the interiors of `{ … }` bodies. Symbols are the names of the declarations that
+ * own them, and nothing else** — not prototypes, not abstract or interface members, not
+ * expression-bodied members, and not types. A symbol for a declaration elision cannot touch would
+ * survive every transform by construction, raising `R_AST` and lowering `S_k` for the same loss —
+ * §59's falling drift score, the hazard this package was built to avoid.
+ *
+ * Not every region has a name (DECISIONS §86). A C# lambda or anonymous method has none by design,
+ * and a C `function_definition` whose declarator error recovery has mangled has none that can be
+ * read — `redismodule.h`'s macro-annotated prototypes fold into one such node. Neither weakens the
+ * witness, because drift sees a lost header and never a correct body elision. A file whose regions
+ * are all unnamed is refused by the measurement gate (§33).
  *
  * The node tables are §82's, which passed 44 known-answer fixtures before any corpus was measured.
  */
