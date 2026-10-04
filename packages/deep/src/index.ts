@@ -1,5 +1,6 @@
 import { Language, Parser } from 'web-tree-sitter';
 
+import { cFamilyDefinitions, cFamilySymbols, type Definition } from './cfamily';
 import { issuesFromTree, type DeepIssue } from './check';
 import { DEEP_LANGUAGES, grammarWasmPath, type DeepLanguage } from './grammars';
 import { regionsFromTree, type DeepRegion, type DeepRegionOptions } from './regions';
@@ -7,6 +8,7 @@ import { symbolsFromTree } from './symbols';
 
 export { DEEP_LANGUAGES, type DeepLanguage } from './grammars';
 export { type DeepRegion, type DeepRegionOptions } from './regions';
+export { type Definition } from './cfamily';
 
 /**
  * `tokendamper-deep` — the Deep-mode backends, backed by tree-sitter compiled to WASM.
@@ -42,6 +44,12 @@ export interface DeepBackend {
   symbols(content: string): Set<string>;
   check(content: string): DeepCheckResult;
   regions(content: string, options?: DeepRegionOptions): DeepRegion[];
+  /**
+   * Each named block-bodied declaration's whole span, header included. C and C# only — empty for
+   * the R3 languages, whose symbols mirror the shipped regex rather than a declaration list. Used
+   * by the §85 deletion control; never by core.
+   */
+  definitions(content: string): Definition[];
 }
 
 let initialised: Promise<void> | undefined;
@@ -70,9 +78,23 @@ async function createBackend(language: DeepLanguage): Promise<DeepBackend> {
       const tree = parser.parse(content);
       if (tree === null) return new Set();
       try {
-        return symbolsFromTree(tree, language);
+        // C and C# name the declarations regions() offers (DECISIONS §85); the R3 languages keep
+        // reproducing the shipped regex's vocabulary, which is what R3 step 1 measured.
+        return language === 'c' || language === 'csharp'
+          ? cFamilySymbols(tree.rootNode, language)
+          : symbolsFromTree(tree, language);
       } finally {
         // web-tree-sitter trees hold WASM memory that GC does not reclaim.
+        tree.delete();
+      }
+    },
+    definitions(content: string): Definition[] {
+      if (language !== 'c' && language !== 'csharp') return [];
+      const tree = parser.parse(content);
+      if (tree === null) return [];
+      try {
+        return cFamilyDefinitions(tree.rootNode, language);
+      } finally {
         tree.delete();
       }
     },

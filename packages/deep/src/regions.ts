@@ -1,5 +1,6 @@
 import type { Node, Tree } from 'web-tree-sitter';
 
+import { cFamilyRegions } from './cfamily';
 import type { DeepLanguage } from './grammars';
 
 /** A candidate span, in the byte-offset convention the Fast scanners use. */
@@ -159,7 +160,14 @@ export function regionsFromTree(
       return goRegions(root);
     case 'python':
       return pythonRegions(root, tree, options);
-    default:
-      return [];
+    case 'c':
+    case 'csharp':
+      return cFamilyRegions(root, language);
+    default: {
+      // The deferred R3 review item, closed in the release that needed it: a language missing
+      // here used to return [] silently, which reads as `backendAnswered > 0` with zero regions.
+      const unreachable: never = language;
+      throw new Error(`tokendamper-deep: no region table for ${String(unreachable)}`);
+    }
   }
 }

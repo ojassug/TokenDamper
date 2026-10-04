@@ -11,6 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-c-sharp": "^0.23.5",
     "tree-sitter-go": "^0.25.0",
     "tree-sitter-javascript": "^0.25.0",
     "tree-sitter-python": "^0.25.0",

@@ -93,9 +93,11 @@ const SOURCES: Record<string, string> = {
   ].join('\n'),
 };
 
-describe('the deep backend covers the four languages Fast already identifies', () => {
-  it('registers exactly typescript, javascript, python and go', () => {
-    expect([...backends.keys()].sort()).toEqual(['go', 'javascript', 'python', 'typescript']);
+describe('the deep backend covers the four R3 languages and the two R4 adds', () => {
+  it('registers exactly typescript, javascript, python and go, plus c and csharp', () => {
+    // Four until R4. C and C# are deep-only (DECISIONS §84–§86): core names them through its
+    // Fast lexers and takes their regions and function symbols from these backends.
+    expect([...backends.keys()].sort()).toEqual(['c', 'csharp', 'go', 'javascript', 'python', 'typescript']);
   });
 
   it('exposes a synchronous surface', () => {
