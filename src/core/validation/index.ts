@@ -65,7 +65,7 @@ export function validate(
   };
 
   // Same "did anything look" question as `astCoverage`, one layer down: whether a Deep backend
-  // actually answered for `after`'s items, as opposed to `--engine-mode deep` producing
+  // actually answered for `after`'s items, as opposed to `--mode deep` producing
   // byte-identical output because nothing ran. Computed here, over every call to `validate()`,
   // rather than only at the engine's failure-branch rewrites — the plain success path (no
   // repair, no rehydration, no fallback) never touches any of those, and it is the commonest
@@ -236,7 +236,7 @@ export function validate(
     issues.push({
       code: 'LANGUAGE_NOT_ELIDIBLE',
       message: languageSupport.noneSupported
-        ? `No elision transform in this build can reduce ${languages}: there is no sub-item region selector for it, and whole-item elision cannot survive the drift gate. Elision reduces TypeScript/JavaScript, Python and Go only. A 0% result here is structural, not a property of this input.`
+        ? `No elision transform in this build can reduce ${languages}: there is no sub-item region selector for it, and whole-item elision cannot survive the drift gate. Fast mode reduces TypeScript/JavaScript, Python and Go; C and C# reduce only under --mode deep. A 0% result here is structural, not a property of this input.`
         : `${languageSupport.unsupported} of ${before.items.length} item(s) are in a language elision cannot reduce (${languages}); only whole-item pruning can affect them.`,
       severity: 'info',
     });

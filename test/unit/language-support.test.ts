@@ -159,11 +159,11 @@ describe('C and C# report deep mode as the route (R4)', () => {
   it('names the deep route for a C file in fast mode', () => {
     const report = describeLanguageSupport(bundleFor('int f(void) { return 0; }\n', 'x.c', 'c'));
     expect(report.supported).toBe(0);
-    expect(report.reason).toMatch(/C and C# reduce only under --engine-mode deep/);
+    expect(report.reason).toMatch(/C and C# reduce only under --mode deep/);
   });
 
   it('does not mention the deep route when no item is C or C#', () => {
-    expect(describeLanguageSupport(bundleFor(RS_BODY, 'a.rs', 'rust')).reason).not.toMatch(/--engine-mode deep/);
+    expect(describeLanguageSupport(bundleFor(RS_BODY, 'a.rs', 'rust')).reason).not.toMatch(/--mode deep/);
   });
 
   it('counts a C file as supported in deep mode once the backend is registered', async () => {

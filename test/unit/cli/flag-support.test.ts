@@ -18,7 +18,7 @@ import { parseArguments, runCli, SUPPORTED_FLAGS } from '../../../src/cli/main';
  */
 const VALUE_FOR: Readonly<Record<string, string | null>> = {
   '--config': 'tokendamper.config.json',
-  '--mode': 'optimize',
+  '--mode': 'fast',
   '--planner-mode': 'pass_through',
   '--minimum-confidence': '0.5',
   '--log-level': 'silent',
@@ -30,7 +30,6 @@ const VALUE_FOR: Readonly<Record<string, string | null>> = {
   '--max-debt': '10',
   '--max-drift': '0.5',
   '--keep-docstrings': null,
-  '--engine-mode': 'fast',
   '--language': 'python',
   '--input-name': 'snippet.py',
   '--report-json': 'report.json',

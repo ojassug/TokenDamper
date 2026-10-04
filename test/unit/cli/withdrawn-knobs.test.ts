@@ -23,6 +23,10 @@ import { loadConfig } from '../../../src/config/load';
  *
  * The two halves that are *not* withdrawn are pinned here as well, because they are what makes
  * this a withdrawal rather than a deletion.
+ *
+ * **2.0.0 withdrew the rest of `--mode`'s old values, and `--engine-mode` with them** (DECISIONS
+ * §87). `--mode` now selects the engine, `fast|deep`; `test/unit/cli/mode-flag.test.ts` pins the
+ * parse errors that name each replacement.
  */
 describe('withdrawn dead knobs', () => {
   const io = () => {
@@ -101,32 +105,21 @@ describe('withdrawn dead knobs', () => {
   });
 
   describe('what is deliberately kept', () => {
-    it('keeps --mode bench, which is the half that does something', () => {
-      // `--mode bench` sets `command = 'bench'`. That is a live effect, so `--mode` is withdrawn
-      // by *value* rather than removed — the audit named `explain`, and only `explain`.
-      //
-      // Asserting the *parse*, not the run: `bench` shells out to `python` to evaluate fixture
-      // code (audit OX-M15, still open), so whether it exits 0 depends on the machine. What this
-      // pins is that `bench` is still an accepted value and still routes there.
-      const { err, io: streams } = io();
-      expect(SUPPORTED_FLAGS.optimize.has('--mode')).toBe(true);
-
-      runCli(['--mode', 'bench', '--quiet'], streams, dir());
-      expect(err.join('')).not.toContain('Invalid value for --mode');
-    });
-
-    it('still accepts --mode optimize', () => {
-      const { err, io: streams } = io();
-      const cwd = dir();
-      runCli(['optimize', input(cwd), '--mode', 'optimize'], streams, cwd);
-
-      expect(err.join('')).not.toContain('Invalid value for --mode');
-    });
-
     it('keeps TOKENDAMPER_APP_MODE=bench and =optimize', () => {
       for (const mode of ['optimize', 'bench']) {
         expect(() => loadConfig({ cwd: dir(), env: { TOKENDAMPER_APP_MODE: mode } })).not.toThrow();
       }
     });
+  });
+});
+
+describe('--engine-mode and the old --mode values (2.0.0)', () => {
+  it('are absent from every command in the flag table', () => {
+    for (const command of ['optimize', 'bench', 'mcp'] as const) {
+      expect(SUPPORTED_FLAGS[command].has('--engine-mode')).toBe(false);
+    }
+    expect(SUPPORTED_FLAGS.optimize.has('--mode')).toBe(true);
+    expect(SUPPORTED_FLAGS.bench.has('--mode')).toBe(false);
+    expect(SUPPORTED_FLAGS.mcp.has('--mode')).toBe(false);
   });
 });

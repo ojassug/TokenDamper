@@ -251,8 +251,8 @@ export interface AstCoverage {
 /**
  * Whether a Deep backend actually answered for the items in this bundle.
  *
- * **This block exists because `--engine-mode deep` producing byte-identical output and
- * `--engine-mode deep` never having run are otherwise the same observation.** That confusion
+ * **This block exists because `--mode deep` producing byte-identical output and
+ * `--mode deep` never having run are otherwise the same observation.** That confusion
  * is invariant 10, which this project has recorded ten instances of; `astCoverage` (§23) and
  * `driftCoverage` (§33) are the two earlier answers to the same question, and this is the
  * third.

@@ -14,7 +14,7 @@ interface DeepModule {
  * it means an `npm install` that reaches the main checkout. `deep-parity.js` resolves it
  * exactly this way and prints the same build instruction.
  *
- * **An empty registry is an error, not a fall-through.** `--engine-mode deep` that silently
+ * **An empty registry is an error, not a fall-through.** `--mode deep` that silently
  * ran Fast is invariant 10 in its purest form — a green result from a path that never
  * executed. DECISIONS §54 set the precedent when an unrecognised `TOKENDAMPER_*` enum value
  * became a hard error rather than a silent default.
@@ -37,7 +37,7 @@ export async function registerDeepBackends(): Promise<number> {
 
   if (registered === 0) {
     throw new Error(
-      'tokendamper: --engine-mode deep registered no parser backends. Refusing to run, because ' +
+      'tokendamper: --mode deep registered no parser backends. Refusing to run, because ' +
         'falling back to the fast path here would report a deep run that never happened.',
     );
   }
@@ -58,7 +58,7 @@ async function loadDeepModule(): Promise<DeepModule> {
   }
 
   throw new Error(
-    'tokendamper: --engine-mode deep could not load tokendamper-deep. It is unpublished in R3, ' +
+    'tokendamper: --mode deep could not load tokendamper-deep. It is unpublished in R3, ' +
       'so build it first:\n  npx tsc -p packages/deep/tsconfig.json\nTried:\n  ' +
       failures.join('\n  '),
   );
