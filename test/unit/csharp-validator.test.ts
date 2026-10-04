@@ -33,6 +33,9 @@ describe('CSharpValidator accepts balanced C#', () => {
     ['braces in comments', '// }\n/* {\n ( */\nclass A { }\n'],
     ['a body TokenDamper has elided', `class A {\n  int F() {${MARKER}}\n}\n`],
     ['CRLF line endings', 'class A\r\n{\r\n  void F() { }\r\n}\r\n'],
+    // The census's first finding: 549 Newtonsoft.Json files open with a byte-order mark and then
+    // `#region License`, and the BOM hid the `#` from line-start detection (§84).
+    ['a byte-order mark before a #region', '﻿#region License\n// text\n#endregion\nclass A { }\n'],
   ])('%s', (_label, src) => {
     const result = verdict(src);
     expect(result.issues).toEqual([]);

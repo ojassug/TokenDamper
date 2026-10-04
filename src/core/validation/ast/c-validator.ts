@@ -293,7 +293,8 @@ class CScanner {
         this.inDirective = false;
         continue;
       }
-      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\f' || ch === '\v') {
+      // U+FEFF is a byte-order mark: whitespace here, or it hides a first-line directive (§84).
+      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\f' || ch === '\v' || ch === '﻿') {
         this.advance();
         continue;
       }

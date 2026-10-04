@@ -41,6 +41,7 @@ describe('CValidator accepts balanced C', () => {
     ['prefixed literals', "wchar_t w = L'x'; const char *u = u8\"utf\"; const wchar_t *l = L\"wide\";\n"],
     ['an include with angle brackets', '#include <sys/types.h>\n#include "local.h"\n'],
     ['CRLF line endings', 'int f(void)\r\n{\r\n  return 0;\r\n}\r\n'],
+    ['a byte-order mark before a directive', '﻿#ifdef X\nint f(void) {\n#endif\n}\n'],
     ['a body TokenDamper has elided', `int f(void) {${MARKER}}\nint g(void) { return 1; }\n`],
   ])('%s', (_label, src) => {
     const result = verdict(src);

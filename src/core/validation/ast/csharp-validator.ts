@@ -114,7 +114,9 @@ class CSharpScanner {
         if (hole === null) this.atLineStart = true;
         continue;
       }
-      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\f' || ch === '\v') {
+      // U+FEFF is a byte-order mark. 549 of 3,165 Newtonsoft.Json and jellyfin files open with one
+      // and then `#region License`, and reading it as a token hid that directive (§84).
+      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\f' || ch === '\v' || ch === '﻿') {
         this.advance();
         continue;
       }
