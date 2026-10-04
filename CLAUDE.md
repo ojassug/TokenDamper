@@ -221,6 +221,12 @@ DECISIONS §75, scheduled in `ROADMAP.md`.** Four releases, named rather than nu
     ratio 0.3: python file route **17.75% → 22.26%**, typescript **20.35% → 20.20%**. Per-row, 540
     of 594 identical. Target adherence improves — rows landing in the 25–35% band went **12 → 20**
     of 54 differing, because Fast was overshooting (one file went 67.3% → 36.6%).
+    **Much of that Python gap was not the parser, and §83 closes that part.** Fast's scanner
+    needed `def …:` on one line, so it skipped wrapped signatures and `async def`. Fixed, Fast's
+    pip ceiling goes 43.23% → 68.84% against Deep's 67.90%, but achieved reduction only goes
+    17.75% → 19.53%. The rest is §81's leading-comment convention. The fix also costs fallbacks on
+    async-heavy code (2 recovered, 9 new across three corpora), and ships with R4 by explicit
+    decision, recorded in §83.
   - **The headline finding: Deep cannot validate TokenDamper's own output.** The elision marker
     spliced into a function body is not valid TypeScript or Python, so wiring Deep's `check()`
     live made deep mode reduce **nothing** (292 → 292 tokens with a fallback, against 292 → 211

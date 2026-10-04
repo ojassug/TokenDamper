@@ -6664,6 +6664,8 @@ pruner that costs 135ms.
   dropping files rather than refusing. Aggregates here are **not** comparable to the 63-file R2
   baselines; per-row over one frozen corpus still is.
 
+---
+
 ## 82. R4 Step 1: Three Candidates Clear The Floor, And Five Are Doc-Comment Languages
 
 **Status: measured, 2026-09-23.** Design §3.7 step 1 — the elidable ceiling of every candidate
@@ -6679,6 +6681,11 @@ ceiling a shipped language has measured under either instrument; the lowest is P
 43.23% on pip 26.2.1. So it reads as *at least as much material as the weakest language already
 shipped*. It is `FLOOR` in the instrument, and `test/unit/corpus-harness-ceiling.test.ts` pins it
 so that moving it is a visible diff.
+
+*Landing note, 2026-10-04: §83 retires the 43.23% figure. Fast Python reads 68.84% on the same
+files once it reads wrapped and `async` headers. The floor does not move, because it was
+pre-registered, and it still sits below every shipped ceiling quoted in this entry: the lowest
+is now TypeScript under Fast, 57.21%.*
 
 It is a floor on **material**, not a projection of reduction. See the last section.
 
@@ -6829,3 +6836,258 @@ were installed into scratch with install scripts disabled, not added to the repo
 - **The node tables are the instrument's own claim.** Fixtures, the lexer and spot-checks support
   them, but a construct no fixture covers could still be missed.
 - **Generated-file detection reads names and headers only.** windows-sys is its blind spot.
+
+---
+
+## 83. Fast Python Reads Wrapped And `async` Headers: The Ceiling Gap Closes, The Reduction Gap Only Partly
+
+**Status: implemented and measured, 2026-09-23. It left one call to ship time, and on
+2026-10-04 that call was made: it ships, with R4. See the last section.** Found by §82 ("Found off the R4 path"). This moves emitted bytes on the
+default Fast path for Python.
+
+### What changed
+
+`scanPythonDefBodies` tested each line against `/^\s*def\s.*:\s*$/`, so a header had to fit on
+one line and begin with `def`. That rule skipped every signature black wraps, whose first line
+ends in `(`, and every `async def`.
+
+A header now opens on a line matching `/^\s*(?:async\s+)?def\s/` that does not begin inside a
+string. It closes at the end of the first line on which:
+
+- the brackets it opened are closed,
+- no string is open, and
+- no backslash continues the line.
+
+It counts as a header only if that line ends with `:`. That is the old rule's own test, applied to
+the header's last line instead of its first. The body scan is unchanged except that it starts after
+the header's last line. Audit L7's rule then applies from there, so the region begins at the first
+non-blank line.
+
+The lexical rules are `PythonValidator`'s, so the scanner and the post-condition check agree about
+where strings are. Two consequences follow:
+
+- **A `def` inside a string no longer counts.** The old test was line-local, so a one-line
+  `def generated(a, b):` inside a triple-quoted template matched, and the "body" elided was part of
+  a string literal. Every gate passes when that happens. The marker sits inside a string, so the
+  validator cannot see it. The `def` line survives, so drift sees no loss. The wrapped form needs
+  the string state anyway, and the same state closes the one-line form.
+- **A new header line always restarts the search.** In valid Python no line inside brackets can
+  begin with `def`, so this changes nothing on valid code. On malformed input, an unclosed
+  parameter list costs only its own region.
+
+**The widen-language ordering held before any scanner change, so only the scanner moved.** Drift's
+Python symbol regex is `/def\s+([A-Za-z_][A-Za-z0-9_]*)/g`. It is unanchored, so it already
+harvests names under `async def` and under wrapped headers. The validator is unchanged.
+
+The tests are `test/unit/python-def-headers.test.ts`, 23 cases. Against the unfixed scanner, 17
+fail and 6 pass. The 6 are negative controls that assert an absence: a wrapped `def` in a string,
+commented-out headers, a class body under a wrapped class header, a truncated parameter list, a
+body on the closing line, and one-line headers with brackets in a string default or comment.
+The one control that fails on the unfixed scanner too is the one-line `def` inside a string. The
+old rule selected `{start: 52, end: 260}` there, inside the literal.
+
+### The harness corpus: pip 26.2.1
+
+The corpus was frozen with `collect.js` at `0b0aa21`, clean tree: 297 files and 594 rows at ratio
+0.3, both routes, 0 failed runs in either arm. The baseline `dist` is `649eea00fe2c` and the
+candidate is `75d99dafcc68`. Each built arm was checked for the code it should carry before it
+was measured.
+
+| bucket | route | reduced | fallback | saved |
+|---|---|---|---|---|
+| python | file | 34 -> 35 | 10 -> 10 | 17.75% -> **19.53%** |
+| python | stdin | 32 -> 33 | 9 -> 9 | 17.39% -> **19.16%** |
+| typescript | file | 42 -> 42 | 16 -> 16 | 20.32% -> 20.32% |
+
+**Per row: 49 of 594 differ, all Python (25 file, 24 stdin).** The other 545 rows are identical
+on all 16 compared fields. That includes every TypeScript row, so no rule reached anything but
+Python.
+
+The file route splits as follows:
+
+- **14 rows reduce in both arms and moved.**
+- **2 rows recovered.** `cache.py` went from fallback to 36.7%, and `commands/list.py` from
+  fallback to 35.3%.
+- **2 rows newly fall back.** `build_env/installer.py` went from 19.7% to fallback, and
+  `locations/_distutils.py` from 10.4% to fallback.
+- **7 rows fall back in both arms.** Their output is identical; only trace fields differ.
+
+Both new fallbacks are `CONSTRAINT_DIRECTIVE_LOST`. In each, the dropped directive was outside
+every baseline region and inside a candidate region under a wrapped header. The two recoveries
+are a selection effect, not avoidance. Their directive is inside a region in both arms, but with
+more candidates the ceiling is met without eliding that region.
+
+**These are §81's rows.** On this freeze, against baseline Fast, Deep recovers four pip files and
+newly fails on two. The fixed Fast path newly fails on the same two, `build_env/installer.py` and
+`locations/_distutils.py`. It recovers two of the four, `cache.py` and `commands/list.py`. The
+other two, `build_env/venv.py` and `cli/parser.py`, are the leading-comment case below. On pip,
+Fast's fallback set is now Deep's plus exactly those two files.
+
+**Target adherence improves, measured over the 32 rows that reduce in both arms.** 13 outputs
+moved: 10 closer to 0.3 and 3 further. The 25–35% band went 11 -> 15, rows above 50% stayed at 4,
+and the mean |achieved − 0.3| went **11.72 -> 9.01pp**. `cli/autocompletion.py` went
+67.3% -> 36.6%, the same row §81 recorded under Deep. `cli/progress_bars.py` went 0.0% -> 38.7%.
+Five of its six headers are wrapped, and the sixth's body never cleared the filters, so Fast
+selected nothing there before.
+
+**The ceiling gap closes.** `ceiling.js --parity` reports 45/45 parity. It was run from a scratch
+copy pointed at this tree, because the instrument is §82's and not yet on `main`.
+
+| | before | after |
+|---|---|---|
+| Fast ceiling | 43.23% | **68.84%** |
+| Deep ceiling | 67.90% | 67.90% |
+
+Per region, over both arms at the default filters:
+
+- **279 regions are identical.**
+- **112 are added, and every one is under a wrapped `def`** (116,792 bytes).
+- **4 are removed.** Each is a nested body now subsumed by its newly found wrapped parent.
+- **0 are removed for any other reason**, so the string-awareness half moved no region.
+
+The census found 504 `def` lines: 127 with a wrapped first line, and **0 `async`**.
+
+**Fast now finds what Deep finds, except for §81's convention.** Fast selects 391 regions:
+
+- **359 are byte-identical to Deep's.**
+- **29 share Deep's end but start at a leading `#` comment**, which Deep excludes.
+- **3 are Fast-only**, because Deep's comment-excluded span falls under `MIN_REGION_BYTES`.
+
+Deep has **0 regions Fast lacks**. Per file, 27 of 45 are identical and 0 read smaller under Fast
+than under Deep. `cli/req_command.py` goes 8.4% -> 76.4%, exactly Deep's figure.
+
+**`cli/req_command.py` gains nothing end to end.** It falls back in both arms on the same 75
+bytes: *"…config files) do not affect it."* That text is in the docstring of
+`should_ignore_regular_constraints`, a one-line header both arms elide. The ceiling moved; the
+gate did not.
+
+### "Most of why deep mode reduced more" is true of the ceiling, not of the reduction
+
+`--engine-mode deep` was run under both engines: **594 of 594 rows identical**, so the change is
+confined to Fast discovery. Deep reads python file **22.26%** (37 reduced, 8 fallbacks) and stdin
+21.89%, reproducing §81 on a fresh freeze.
+
+Against it, the fixed Fast path closes **1.78 of the 4.51pp gap**: 17.75% -> 19.53%. Fast and
+Deep now emit identical output on 32 of 45 file rows, up from 20. The remaining 2.73pp is 3,602 of
+131,971 tokens:
+
+- **Two rows are 72% of it (2,588 tokens).** `build_env/venv.py` and `cli/parser.py` fall back
+  under Fast and reduce under Deep, at 69.4% and 33.9%. In both, the dropped directive is the
+  body's leading comment: *"# We defer this import because certain distributions of Python do not
+  include"* and *"# help position must be aligned with __init__.parseopts.description"*. Fast's
+  region includes that comment and Deep's excludes it.
+- **Most of the rest is Deep overshooting the target.** `cli/main_parser.py` reads 75.5% under
+  Deep against 30.5% under Fast, and `commands/install.py` reads 36.3% against 30.6%.
+
+**So what now separates the two on Python is §81's leading-comment convention, not header
+discovery.** §81 already suspected this, noting that Deep excluding a leading comment "is by
+itself a mechanism that avoids that gate". This change is recorded here, not made, because
+aligning the conventions moves Fast's output on every such file. It is a change of its own.
+
+### The async half, measured where it exists
+
+pip has no `async def`, so the harness corpus cannot see half of this change. Two async corpora
+were frozen with `collect.js --recipe` from a scratch recipe:
+
+- CPython 3.12.10 `Lib/asyncio`: 30 files, 144 `async def` lines, 68 wrapped first lines.
+- anyio 4.14.2: 37 files, 428 `async def` lines, 283 wrapped first lines.
+
+That gave 134 rows per arm. The engine was varied by swapping `dist/`, and each arm was verified
+with `diff -r` against a saved build plus a grep guard.
+
+| corpus | Fast ceiling | Deep | route | reduced | fallback | saved |
+|---|---|---|---|---|---|---|
+| asyncio | 51.85% -> 75.61% | 74.47% | file | 18 -> 15 | **10 -> 13** | 11.48% -> **7.27%** |
+| | | | stdin | 18 -> 15 | 6 -> 9 | 11.48% -> 7.27% |
+| anyio | 18.62% -> 55.31% | 55.03% | file | 27 -> 28 | **2 -> 6** | 8.07% -> **17.29%** |
+| | | | stdin | 27 -> 28 | 2 -> 5 | 8.07% -> 17.29% |
+
+Added regions by header shape:
+
+| corpus | `async` one-line | `async` wrapped | `def` wrapped | total |
+|---|---|---|---|---|
+| asyncio | 75 | 31 | 21 | 127 |
+| anyio | 174 | 74 | 79 | 327 |
+
+Headers carrying `async` account for 86% of the added bytes on asyncio and 75% on anyio. The 6
+and 12 removed regions are all nested bodies subsumed by a new parent.
+
+**Seven rows newly fall back and none recover** (file route). All seven are
+`CONSTRAINT_DIRECTIVE_LOST`. In every one the directive was outside every baseline region and
+inside a candidate region under a newly reachable header:
+
+| row | before | directive | header |
+|---|---|---|---|
+| `asyncio/selector_events.py` | 30.5% | *The socket must be bound to an address and listening for connections.* | `async` one-line |
+| `asyncio/staggered.py` | 4.8% | *\* They should always raise an exception if they did not complete* | `async` one-line |
+| `asyncio/streams.py` | 26.4% | *# in a loop would never call connection_lost(), so it* | `async` one-line |
+| `anyio/_core/_subprocesses.py` | 0.0% | *:param env: If env is not ``None``, it must be a mapping that defines the* | `async` wrapped |
+| `anyio/abc/_sockets.py` | 8.5% | *The existing socket must already be connected.* | `async` one-line |
+| `anyio/from_thread.py` | 11.3% | *(required if calling this function from outside an AnyIO worker thread)* | `def` wrapped |
+| `anyio/to_interpreter.py` | 7.6% | *mission-critical on Python 3.* | `async` wrapped |
+
+**Some of that is real instruction and some is §52's narrative axis.** "The socket must be bound"
+is a precondition the caller needs. "# in a loop would never call" describes behaviour. The gate
+cannot tell them apart, which is known. What is new is how much docstring-heavy async code it
+now has in reach.
+
+**Among rows that reduce in both arms, adherence still improves.**
+
+- **asyncio:** 15 rows, 4 moved (3 closer, 1 further). The 25–35% band went 9 -> 10, and the mean
+  |achieved − 0.3| went 9.27 -> 8.91pp.
+- **anyio:** 24 rows, 21 moved (17 closer, 4 further). The band went 5 -> 10, and the mean
+  |achieved − 0.3| went 16.53 -> 9.10pp. Rows above 50% went 0 -> 1.
+
+### Latency
+
+`selectElisionRegions` in fast mode, in-process over the 112 files of all three corpora (1.43 MiB):
+**0.07 -> 0.14 ms per file**, 20 passes, two runs per arm. Part of that is simply more regions
+through the filters. R2 measured 159.1 ms cold per file (§76), so this does not show at the CLI.
+
+### What this does **not** establish
+
+- **The async half on the harness's own corpus.** pip has 0 `async def`. The async evidence comes
+  from a scratch recipe on one machine, not from `recipe.json`, so the next freeze will not see it
+  unless a bucket is added.
+- **The string-awareness half on any real file.** It removed no region across the 112 files, and
+  only a unit test pins it. A corpus that cannot see a fix says so about the corpus (§56).
+- **Retention.** A new fallback is the gate's judgement on text; it does not measure whether a
+  model can still use an elided file.
+- **Any ratio but 0.3.**
+- **`--keep-docstrings` on a corpus.** It is unit-tested under a wrapped header only.
+- **Every shape Fast might miss.** Three are known:
+  - a header whose last line carries a comment after the `:`, which the census found 0 times on
+    all three corpora and is therefore unmeasured;
+  - a body line that dedents inside a multi-line string, which still ends the indentation-only
+    body scan, as it did before;
+  - §81's leading-comment start, which is now the only discovery difference from Deep on pip.
+- **§82's floor rationale.** §82 justifies its pre-registered 40% floor as below "the lowest …
+  Python under Fast, 43.23% on pip 26.2.1". This change retires that figure; Fast Python reads
+  68.84% on the same files. The floor was pre-registered and should not move because of this, but
+  that sentence needs revisiting wherever §82 lands.
+
+### The call this leaves to ship time
+
+The version number is decided at ship time (§53), and so is this call. The evidence points both ways:
+
+- **For shipping: §81's precedent.** §81 recorded a discovery improvement whose outcome regressed
+  through the constraint gate, and it refused to make discovery worse to satisfy a gate whose
+  false positives are the known problem. The fallback is also fail-open: raw bytes, byte-identical.
+  What is lost is saving, not content.
+- **Against shipping: the default-path bar.** §81's regressions sat behind an opt-in flag. Every
+  default-path change since §50 has held itself to zero new fallbacks: §50's 0.75, §52 and §77.
+  This one does not. On the file route, across the three corpora, **2 fallbacks recover and 9 are
+  new**, and asyncio's aggregate falls 4.21pp.
+
+The lever that would dissolve the trade is to have *selection* skip a region holding a critical
+atom while discovery stays intact. It is untested. It would move rows in every language, and
+§81's objection to skipping directive-bearing regions would need answering for selection as well
+as discovery. It is its own change.
+
+**Decided 2026-10-04, by the project owner: it ships, with R4.** The case put to the owner was
+the one above. The cost is saving rather than content, because each of the nine is a fail-open
+fallback that returns the input byte for byte. Against that, the string-awareness half closes a
+path on which every gate passes over an elision inside a literal. **The default-path bar is set
+aside for this change, not retired.** The next default-path change is held to zero new fallbacks
+again unless its own entry argues otherwise, and the release notes state this trade at the top
+rather than in a footnote.

@@ -67,8 +67,9 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
  * generated excluded) on **each** of the candidate's two corpora, never averaged.
  *
  * 40% sits below every ceiling a shipped language has measured under either instrument — the
- * lowest is Python under Fast, 43.23% on pip 26.2.1 — so it reads as "at least as much material
- * as the weakest language already shipped". It is a floor on material, not a projection of
+ * lowest was Python under Fast, 43.23% on pip 26.2.1 — so it reads as "at least as much material
+ * as the weakest language already shipped". §83 retired that figure (Fast Python reads 68.84% on
+ * the same files once it reads wrapped and `async` headers); the floor stays, pre-registered. It is a floor on material, not a projection of
  * reduction: the conversion from ceiling to achieved embeds a fallback rate the candidate does
  * not have yet (§56), and §3.7 requires that rate be the candidate's own.
  */

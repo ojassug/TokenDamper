@@ -85,6 +85,75 @@ const CONTROL_FLOW_HEADER = /\b(?:if|for|while|switch|catch|do|else)\s*\(/;
 const GO_FUNCTION_HEADER = /^func\b/;
 
 /**
+ * The first line of a Python function header: `def` or `async def`, at the start of a line.
+ *
+ * **The first line only, which is the difference from the rule this replaced.** That rule was
+ * `/^\s*def\s.*:\s*$/`, and it needed the whole header on one line: `def` at the front and the
+ * `:` at the end. So it skipped every signature black wraps, whose first line ends in `(`, and
+ * every `async def`, because it does not start with `def`. On the frozen pip 26.2.1 corpus that
+ * put the Fast ceiling at 43.23% against Deep's 67.90%. It was the whole of that discovery gap,
+ * but only 1.78pp of the 4.51pp reduction gap §81 measured; the rest is the leading-comment
+ * convention §81 recorded (DECISIONS §82, §83). Where the header ends is now found by lexing
+ * forward from this line; see `scanPythonDefBodies`.
+ */
+const PYTHON_DEF_HEADER = /^\s*(?:async\s+)?def\s/;
+
+/** The lexical state one Python line hands to the next. */
+interface PythonLexState {
+  /** The delimiter of the string the line ends inside, or `null` outside one. */
+  quote: string | null;
+  /** Open brackets. Only read while a header is open, and reset when one opens. */
+  depth: number;
+}
+
+/**
+ * Advances `state` over one physical line, given without its line terminator. Returns whether the
+ * line ends in a `\` continuation outside any string or comment.
+ *
+ * The lexical rules are `PythonValidator`'s, so the scanner and the post-condition check agree
+ * about where a string is: a backslash escapes the next character inside any string, a `#` outside
+ * one ends the line, and a single-quoted string ends with its line unless a trailing backslash
+ * continues it. Outside a header, the only thing that survives a line break is an open string:
+ * a triple-quoted one, or a continued single-quoted one. Inside a header, bracket depth survives
+ * too. Brackets are counted, not matched; matching them is the validator's job.
+ */
+function lexPythonLine(line: string, state: PythonLexState): boolean {
+  let j = 0;
+  while (j < line.length) {
+    const char = line[j]!;
+    if (state.quote !== null) {
+      if (char === '\\') {
+        j += 2;
+      } else if (line.startsWith(state.quote, j)) {
+        j += state.quote.length;
+        state.quote = null;
+      } else {
+        j++;
+      }
+      continue;
+    }
+    if (char === '#') {
+      return false;
+    }
+    if (char === '"' || char === "'") {
+      state.quote = line.startsWith(char.repeat(3), j) ? char.repeat(3) : char;
+      j += state.quote.length;
+      continue;
+    }
+    if (char === '(' || char === '[' || char === '{') {
+      state.depth++;
+    } else if (char === ')' || char === ']' || char === '}') {
+      state.depth = Math.max(0, state.depth - 1);
+    }
+    j++;
+  }
+  if (state.quote !== null && state.quote.length === 1 && !line.endsWith('\\')) {
+    state.quote = null;
+  }
+  return state.quote === null && line.endsWith('\\');
+}
+
+/**
  * Scans TypeScript/JavaScript for brace spans, tracking the lexical states in which a brace
  * does not mean a brace.
  *
@@ -288,6 +357,33 @@ function scanGoBraceSpans(content: string): ReadonlyArray<BraceSpan> {
  * `AST_INDENTATION_ERROR`, and the indentation has to stay outside the hashed bytes or the
  * rehydrated text is not byte-identical. Those two requirements are only jointly satisfiable
  * at this boundary.
+ *
+ * ### Where a header ends is found by lexing, because a header can span lines
+ *
+ * A header opens on a `PYTHON_DEF_HEADER` line that does not begin inside a string. It closes at
+ * the end of the first line on which the brackets it opened are closed, no string is open and no
+ * backslash continues it. It counts as a header only if that line ends with `:`, which is the
+ * one-line rule's own test applied to the header's *last* line rather than its first. A one-line
+ * header is the case where the first line and the last line are the same, and nothing about it
+ * changes except the next point.
+ *
+ * **Knowing where strings are also stops a `def` inside one from counting.** The one-line rule
+ * was line-local, so `def generated(a, b):` at the start of a line inside a triple-quoted
+ * template matched, and the "body" elided was part of a string literal. Every gate passes when
+ * that happens: the marker sits inside a string where `PythonValidator` cannot see it, and the
+ * `def` line survives, so drift sees no loss. The wrapped form needs the string state anyway —
+ * without it, a wrapped `def` in a template would open a header and do the same thing — and the
+ * same state closes the one-line form.
+ *
+ * A new header line always restarts the search. Inside brackets, a line cannot begin with the
+ * `def` keyword in valid Python, so this changes nothing on valid code. On a truncated or
+ * malformed file it means an unclosed parameter list costs its own region, not every region
+ * after it.
+ *
+ * The body scan below is still indentation-only and starts after the header's last line. A
+ * wrapped header's continuation lines are indented past the `def`, so starting at `def + 1`
+ * would count them as body. Audit L7's rule then applies from there: the region begins at the
+ * first non-blank line.
  */
 function scanPythonDefBodies(content: string, keepDocstrings = false): ReadonlyArray<ElisionRegion> {
   const regions: ElisionRegion[] = [];
@@ -338,16 +434,30 @@ function scanPythonDefBodies(content: string, keepDocstrings = false): ReadonlyA
     return index;
   };
 
+  // Each header as its first and last line, found in one forward pass.
+  const headers: Array<{ readonly first: number; readonly last: number }> = [];
+  const lex: PythonLexState = { quote: null, depth: 0 };
+  let open: number | null = null;
   for (let i = 0; i < lineStarts.length; i++) {
-    const line = lineAt(i);
-    const stripped = line.text.replace(/\r$/, '');
-    if (!/^\s*def\s.*:\s*$/.test(stripped)) {
-      continue;
+    const text = lineAt(i).text.replace(/\r$/, '');
+    if (lex.quote === null && PYTHON_DEF_HEADER.test(text)) {
+      open = i;
+      lex.depth = 0;
     }
-    const headIndent = indentOf(stripped);
+    const continued = lexPythonLine(text, lex);
+    if (open !== null && lex.depth === 0 && lex.quote === null && !continued) {
+      if (/:\s*$/.test(text)) {
+        headers.push({ first: open, last: i });
+      }
+      open = null;
+    }
+  }
 
-    let last = i;
-    for (let j = i + 1; j < lineStarts.length; j++) {
+  for (const header of headers) {
+    const headIndent = indentOf(lineAt(header.first).text.replace(/\r$/, ''));
+
+    let last = header.last;
+    for (let j = header.last + 1; j < lineStarts.length; j++) {
       const candidate = lineAt(j).text.replace(/\r$/, '');
       if (candidate.trim().length === 0) {
         continue;
@@ -357,11 +467,11 @@ function scanPythonDefBodies(content: string, keepDocstrings = false): ReadonlyA
       }
       last = j;
     }
-    if (last === i) {
+    if (last === header.last) {
       continue;
     }
 
-    // The *first non-blank* body line, not `lineAt(i + 1)` — audit L7.
+    // The *first non-blank* body line, not `lineAt(header.last + 1)` — audit L7.
     //
     // A blank line between `def foo():` and the first statement is ordinary Python style, and
     // reading the indent off it gave `indentOf('') === 0`. The region then began at column 0
@@ -374,7 +484,7 @@ function scanPythonDefBodies(content: string, keepDocstrings = false): ReadonlyA
     //
     // The `last` scan above already skipped blanks; only this line did not, which is why the
     // two disagreed.
-    let firstBodyIndex = i + 1;
+    let firstBodyIndex = header.last + 1;
     while (firstBodyIndex < last && lineAt(firstBodyIndex).text.trim().length === 0) {
       firstBodyIndex++;
     }
