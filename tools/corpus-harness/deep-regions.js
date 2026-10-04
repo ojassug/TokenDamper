@@ -20,7 +20,7 @@
  * elided, …]` is not valid TypeScript or Python), so deep validation and elision cannot be
  * combined, and `validationMode` now defaults to `'fast'` for exactly that reason (see the "two
  * axes" comment in `src/core/engine/index.ts`). **Both arms of this comparison validate through
- * the identical Fast lexer, regardless of `--engine-mode`. Deep's validator does not run in
+ * the identical Fast lexer, regardless of `--mode`. Deep's validator does not run in
  * either run.**
  *
  * So a `new-fallback-validator` row no longer means "Deep's validator disagreed with Fast's" —

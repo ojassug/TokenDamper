@@ -7,7 +7,7 @@
  * Usage:
  *   node tools/corpus-harness/measure.js <out-dir> [--variant <label>] [--ratio 0.3]
  *                                        [--concurrency 8] [--routes file,stdin]
- *                                        [--engine-mode fast|deep]
+ *                                        [--mode fast|deep]
  *
  * Reads  <out-dir>/manifest.json
  * Writes <out-dir>/results-<variant>.jsonl and prints a per-bucket summary.
@@ -76,7 +76,7 @@ function runOnce({ route, absPath, bytes, ratio, engineMode }) {
       route === 'file'
         ? ['optimize', absPath, '--target-reduction-ratio', String(ratio)]
         : ['optimize', '-', '--target-reduction-ratio', String(ratio)];
-    if (engineMode) args.push('--engine-mode', engineMode);
+    if (engineMode) args.push('--mode', engineMode);
 
     const child = spawn(process.execPath, [CLI, ...args], { cwd: REPO_ROOT });
 
@@ -212,7 +212,7 @@ async function main() {
   if (!outDir) {
     console.error(
       'usage: measure.js <out-dir> [--variant <label>] [--ratio 0.3] [--concurrency 8] ' +
-        '[--routes file,stdin] [--engine-mode fast|deep]',
+        '[--routes file,stdin] [--mode fast|deep]',
     );
     process.exit(2);
   }
@@ -228,9 +228,16 @@ async function main() {
   // Defaults to undefined — passthrough only, never invents a mode the caller didn't ask for.
   // Validated here rather than left to the CLI: a typo fails every row identically and reads
   // like a corpus problem instead of the arg-parse error it actually is.
-  const engineMode = opt('engine-mode', undefined);
+  // `--mode` since 2.0.0, as the CLI spells it (DECISIONS §87). The old `--engine-mode` would be
+  // read as an unknown option and silently ignored, measuring fast while the label said deep —
+  // so it is refused here, naming the replacement.
+  if (args.includes('--engine-mode')) {
+    console.error('--engine-mode was withdrawn in 2.0.0; pass --mode fast|deep');
+    process.exit(2);
+  }
+  const engineMode = opt('mode', undefined);
   if (engineMode !== undefined && engineMode !== 'fast' && engineMode !== 'deep') {
-    console.error(`--engine-mode must be fast or deep, got ${JSON.stringify(engineMode)}`);
+    console.error(`--mode must be fast or deep, got ${JSON.stringify(engineMode)}`);
     process.exit(2);
   }
 

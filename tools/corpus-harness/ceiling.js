@@ -19,7 +19,7 @@
  * ## Where the candidate spans come from
  *
  * - **Shipped languages** (typescript, python, go) take their spans from `packages/deep`'s
- *   `regionsFromTree` — the code `--engine-mode deep` runs. `--parity` then proves this file's
+ *   `regionsFromTree` — the code `--mode deep` runs. `--parity` then proves this file's
  *   filter pipeline is core's rather than a re-derivation of it: it registers the deep backends
  *   in-process, calls core's own `selectElisionRegions` on every file, and refuses unless the two
  *   region lists are identical. It also reports the Fast ceiling for the same files.

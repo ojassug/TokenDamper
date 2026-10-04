@@ -72,7 +72,7 @@ files using `ceiling.js`'s rule. Weaker provenance than a `collect.js` pin; say 
 
 ```bash
 node tools/corpus-harness/manifest-in-place.js <root> --bucket redis --ext c,h --exclude deps --classify
-node tools/corpus-harness/measure.js <root> --variant deep --engine-mode deep --routes file
+node tools/corpus-harness/measure.js <root> --variant deep --mode deep --routes file
 ```
 
 ## Function-deletion control (`function-deletion-control.js`)
