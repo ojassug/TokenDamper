@@ -24,9 +24,10 @@ import { DEFAULT_TOKENIZER, estimateBundleTokens, type TokenizerAdapter } from '
  * implementation would let the two answers diverge — which is DECISIONS §19's lesson about a
  * second token estimator, in a different place.
  */
-function hasExtractableSymbols(item: ContextItem): boolean {
+function hasExtractableSymbols(item: ContextItem, mode: EngineMode): boolean {
   const probe = { items: [item] } as unknown as ContextBundle;
-  return new DriftTracker().extractSymbols(probe).size > 0;
+  // The stage's own mode, so this refusal and the drift gate agree about C and C# (§85).
+  return new DriftTracker({ engineMode: mode }).extractSymbols(probe).size > 0;
 }
 
 export interface TokenHashingStageOptions {
@@ -253,7 +254,7 @@ export function runTokenHashingStage(
     // Items with no symbols to lose are unaffected and still elided whole: JSON, prose, logs and
     // truncated code are exactly the population this path was written for, and `R_AST` has
     // nothing to score there. That case is governed by the measurement gate (§37) instead.
-    if (hasExtractableSymbols(item)) {
+    if (hasExtractableSymbols(item, options?.mode ?? 'fast')) {
       itemsSkipped += 1;
       skipReasons.no_savings += 1;
       return item;

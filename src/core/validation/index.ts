@@ -122,7 +122,11 @@ export function validate(
   }
 
   // 3. Evaluate Semantic Drift Tracker
-  const driftTrackerOptions = options?.maxDriftThreshold !== undefined ? { maxDriftThreshold: options.maxDriftThreshold } : {};
+  const driftTrackerOptions = {
+    ...(options?.maxDriftThreshold !== undefined ? { maxDriftThreshold: options.maxDriftThreshold } : {}),
+    // The region mode, because the symbols must witness what that mode can elide (§85).
+    engineMode: options?.coverageMode ?? options?.mode ?? DEFAULT_ENGINE_MODE,
+  };
   const driftTracker = new DriftTracker(driftTrackerOptions);
 
   // `DriftCoverage.symbolBearingItems` used to be computed here, as the set of items an AST

@@ -1,5 +1,7 @@
 import { extractProseRegions } from '../constraints/directives';
 import type { ContentType, ContextBundle, ContextItem } from '../model';
+import { deepOnlyBackend } from '../parser/deep-only';
+import { DEFAULT_ENGINE_MODE, type EngineMode } from '../parser/mode';
 
 /**
  * Content types for which markdown structural markers (`#` headings, ``` fences, `---`
@@ -149,6 +151,11 @@ export interface DriftTrackerOptions {
   readonly maxDriftThreshold?: number | undefined; // Default: 0.40
   readonly weightAst?: number | undefined; // Default: 0.60
   readonly weightStruct?: number | undefined; // Default: 0.40
+  /**
+   * The engine (region) mode, not the validation mode: symbols must witness the regions that
+   * mode can elide. Only deep-only languages read it (DECISIONS §85).
+   */
+  readonly engineMode?: EngineMode | undefined;
 }
 
 /**
@@ -160,11 +167,13 @@ export class DriftTracker {
   private readonly maxDriftThreshold: number;
   private readonly weightAst: number;
   private readonly weightStruct: number;
+  private readonly engineMode: EngineMode;
 
   constructor(options: DriftTrackerOptions = {}) {
     this.maxDriftThreshold = options.maxDriftThreshold ?? 0.40;
     this.weightAst = options.weightAst ?? 0.60;
     this.weightStruct = options.weightStruct ?? 0.40;
+    this.engineMode = options.engineMode ?? DEFAULT_ENGINE_MODE;
   }
 
   /**
@@ -638,6 +647,18 @@ export class DriftTracker {
       while ((match = jsonKeyRegex.exec(content)) !== null) {
         if (match[1]) symbols.add(`jsonkey:${match[1]}`);
       }
+    }
+
+    // 10. C and C# (R4, DECISIONS §85). Their function symbols come from their Deep backend,
+    // because no regex above can harvest a C function or most C# methods — so before this, a C
+    // file's only symbols were incidental `type:` matches that survive body elision by
+    // construction, which is §56's unmeasured-elision hazard exactly. Deep mode only, and deep-only
+    // languages only: TypeScript, Python and Go keep their regexes in both modes, so no existing
+    // drift score moves. Whether Deep's symbols should replace those regexes is §79's open question
+    // and stays open.
+    const backend = deepOnlyBackend(item, this.engineMode);
+    if (backend) {
+      for (const symbol of backend.symbols(content)) symbols.add(symbol);
     }
     return symbols;
   }
