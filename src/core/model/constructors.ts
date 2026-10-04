@@ -668,6 +668,7 @@ export type DeclaredLanguage =
   | 'java'
   | 'c'
   | 'cpp'
+  | 'csharp'
   | 'shell'
   | 'powershell'
   | 'css'
@@ -710,6 +711,10 @@ const LANGUAGE_ALIASES: Readonly<Record<string, DeclaredLanguage>> = {
   'c++': 'cpp',
   cc: 'cpp',
   hpp: 'cpp',
+  // C# (R4, spec §4.1). `cs` is the extension spelling, as `py` and `hpp` are above.
+  cs: 'csharp',
+  csharp: 'csharp',
+  'c#': 'csharp',
   sh: 'shell',
   bash: 'shell',
   zsh: 'shell',
@@ -758,6 +763,7 @@ const CONTENT_TYPE_BY_LANGUAGE: Readonly<Record<DeclaredLanguage, ContentType>> 
   java: 'code',
   c: 'code',
   cpp: 'code',
+  csharp: 'code',
   shell: 'code',
   powershell: 'code',
   css: 'code',
@@ -1181,7 +1187,7 @@ function looksLikeMarkdown(text: string): boolean {
  * change too — the fence rule never covered it. See DECISIONS.md §17.
  */
 function isCodeExtension(extension: string): boolean {
-  return ['ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'sh', 'ps1', 'css', 'scss', 'sql'].includes(extension);
+  return ['ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'sh', 'ps1', 'css', 'scss', 'sql'].includes(extension);
 }
 
 function validateBudget(budget: OptimizationBudget): OptimizationBudget {

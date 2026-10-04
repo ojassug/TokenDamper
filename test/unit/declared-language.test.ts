@@ -15,6 +15,7 @@ import { optimize } from '../../src/core/engine';
 import { TokenHasher } from '../../src/core/hashing/token-hasher';
 import { DriftTracker } from '../../src/core/ledger/drift-tracker';
 import {
+  classifyContent,
   contentTypeForLanguage,
   createBundleFromItems,
   createContextBundle,
@@ -633,5 +634,19 @@ describe('MCP optimize_context', () => {
 
     expect(declared.fallbackUsed).toBe(false);
     expect(declared.tokensSaved).toBeGreaterThan(0);
+  });
+});
+
+describe('C# is declarable and classifiable (R4, spec §4.1)', () => {
+  it.each(['csharp', 'cs', 'c#', 'C#', ' CSharp '])('normalizes %j to csharp', (spelling) => {
+    expect(normalizeLanguage(spelling)).toBe('csharp');
+  });
+
+  it('declares code, like every other programming language', () => {
+    expect(contentTypeForLanguage('csharp')).toBe('code');
+  });
+
+  it('classifies a .cs path as code — the filename route and the declaration route agree', () => {
+    expect(classifyContent('class A { }', 'file', 'src/A.cs')).toBe('code');
   });
 });

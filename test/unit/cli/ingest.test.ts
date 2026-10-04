@@ -105,4 +105,13 @@ describe('expandPath', () => {
       expect(expandPath(dir, dir)).toEqual(expandPath(dir, dir));
     });
   });
+
+  describe('which extensions a walk takes', () => {
+    it('takes .cs, which R4 added to both extension lists (spec §4.1)', () => {
+      file('src/A.cs', 'class A { }\n');
+      file('notes.xyz', 'ignored\n');
+
+      expect(relative(expandPath(dir, dir))).toEqual(['src/A.cs']);
+    });
+  });
 });
