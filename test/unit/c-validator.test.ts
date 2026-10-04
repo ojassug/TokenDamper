@@ -50,24 +50,40 @@ describe('CValidator accepts balanced C', () => {
 });
 
 describe('CValidator accepts a file that balances in some build configuration (§84 census)', () => {
-  // Each case is the minimal shape of a real header the census flagged (DECISIONS §84). Every one
-  // is valid C under some configuration and unbalanced under "the first branch of every group",
-  // which is all the first draft tried. The lexer now also tries "the last branch of every group"
-  // (an implicit empty #else when there is none) and accepts if either balances.
+  // Each case is the minimal shape of a real header the census flagged (DECISIONS §84): valid C,
+  // and unbalanced under "the first branch of every group", which is all the first draft tried.
   it.each([
     [
-      'a namespace opened in an #elif and closed under a later #if (libstdc++ tr1)',
-      'namespace std {NL#if USE_STDNL#elif defined(TR1)NLnamespace tr1 {NL#elseNL#endifNL  int x;NL#if !USE_STD && defined(TR1)NL} // tr1NL#endifNL}NL',
+      'an else-brace opened only in an #else branch (newapis.h)',
+      'void f(int a) {\n#if defined(UNICODE)\n  g();\n#else\n  if (a) {\n    h();\n  } else {\n#endif\n    k();\n  }\n}\n',
+    ],
+    ['an extern "C" guard with no closer, valid as C (CPython)', '#ifdef __cplusplus\nextern "C" {\n#endif\nint x;\n'],
+    ['__cplusplus tested with defined()', '#if defined(__cplusplus)\nextern "C" {\n#endif\nint x;\n'],
+    ['C-only code under #ifndef __cplusplus', '#ifndef __cplusplus\nint f(void) { return 0; }\n#endif\n'],
+    [
+      '__cplusplus inside a conjunction (d3d11.h)',
+      '#ifdef __cplusplus\nextern "C" {\n#endif\nint x;\n#if !defined(NO_HELPERS) && defined(__cplusplus)\n}\ninline int f(void) { return 0; }\nextern "C" {\n#endif\nint y;\n#ifdef __cplusplus\n}\n#endif\n',
     ],
     [
-      'an else-brace opened only in an #else branch (newapis.h)',
-      'void f(int a) {NL#if defined(UNICODE)NL  g();NL#elseNL  if (a) {NL    h();NL  } else {NL#endifNL    k();NL  }NL}NL',
+      'a macro defined only under __cplusplus, tested later (fterrors.h)',
+      '#ifdef __cplusplus\n#define NEED_EXTERN_C\n  extern "C" {\n#endif\nint x;\n#ifdef NEED_EXTERN_C\n  }\n#endif\n',
     ],
-    ['an extern "C" guard with no closer, valid as C (CPython)', '#ifdef __cplusplusNLextern "C" {NL#endifNLint x;NL'],
-    ['a broken line in a never-defined branch (sti.h)', 'struct S {NL#ifdef NOT_IMPLEMENTEDNL  M(f(a) PURE;NL#endifNL};NL'],
-  ])('%s', (_label, template) => {
-    const src = template.replace(/NL/g, String.fromCharCode(10));
+  ])('%s', (_label, src) => {
     expect(verdict(src).issues).toEqual([]);
+  });
+
+  it('takes the #else after a known-false #if in the second configuration, as everywhere else', () => {
+    // mimalloc's atomic.h: `#if defined(__cplusplus)` / `#elif …` / `#else`. The first
+    // configuration counts the first live branch, the #elif; the second must count the #else, or
+    // nothing ever reads it — and an #else-only opener balances only there.
+    const src = 'void f(int a) {\n#if defined(__cplusplus)\n#elif defined(_WIN32)\n  g();\n#else\n  if (a) {\n    h();\n  } else {\n#endif\n    k();\n  }\n}\n';
+    expect(verdict(src).issues).toEqual([]);
+  });
+
+  it('counts a feature block with no #else in both configurations, so damage inside it is caught', () => {
+    // The second selection first excluded every block with no #else, which made all of them a
+    // blind spot — 22% of the mutation sites in redis and curl sat inside one.
+    expect(verdict('void f(int a) {\n#ifdef FEATURE\n  if (a) {\n    g();\n#endif\n}\n').valid).toBe(false);
   });
 
   it('never treats an include guard as a configuration choice — its body is always compiled', () => {
@@ -85,6 +101,20 @@ describe('CValidator accepts a file that balances in some build configuration (�
 
   it('still rejects a split conditional in every configuration', () => {
     expect(codes('int x;\n#else\n}\n#endif\n')).toContain('AST_UNBALANCED_CONDITIONAL');
+  });
+});
+
+describe('CValidator rejects these on purpose — the census counts them as false positives (§84)', () => {
+  // Accepting them means excluding blocks that have no #else, which blinds the lexer to every
+  // feature block. Characterization: if a change makes these pass, it has probably re-opened that.
+  it.each([
+    [
+      'a namespace opened in an #elif and closed under a later #if (libstdc++ tr1)',
+      'namespace std {\n#if USE_STD\n#elif defined(TR1)\nnamespace tr1 {\n#else\n#endif\n  int x;\n#if !USE_STD && defined(TR1)\n} // tr1\n#endif\n}\n',
+    ],
+    ['a broken line in a block nothing defines (sti.h)', 'struct S {\n#ifdef NOT_IMPLEMENTED\n  M(f(a) PURE;\n#endif\n};\n'],
+  ])('%s', (_label, src) => {
+    expect(verdict(src).valid).toBe(false);
   });
 });
 

@@ -13,6 +13,10 @@ interface ConditionalGroup {
   readonly index: number;
   /** The branch now open: 0 for the `#if`, then one more per `#elif`/`#else`. */
   branch: number;
+  /** The condition's value in any C build, or null — see `GroupShape.truth`. */
+  readonly truth: boolean | null;
+  /** Whether no C build compiles the branch now open, which is what makes a `#define` here dead. */
+  dead: boolean;
   /** Whether brackets count in the branch now open. */
   counting: boolean;
   /** Whether some branch of this group has already counted. */
@@ -20,13 +24,18 @@ interface ConditionalGroup {
 }
 
 /**
- * Which branch of every conditional group a pass counts. A real build compiles exactly one branch
- * per group, and these are the two selections that are consistent across a whole file without
- * evaluating a single condition.
+ * Which build configuration a pass counts. A real build compiles exactly one branch per group:
+ *
+ *  - `first` takes the first live branch of every group;
+ *  - `last` takes the `#else` of every group that has one, and is otherwise identical.
+ *
+ * Both count a group with no `#else` — a feature block — so damage inside one is caught by both.
+ * Excluding those was the first draft of `last`, and it made every `#ifdef FEATURE` block a blind
+ * spot: 22% of the mutation sites in redis and curl sat inside one (DECISIONS §84).
  */
 type BranchSelection = 'first' | 'last';
 
-/** How many branches a group has and whether one of them is `#else`, recorded by the first pass. */
+/** What the first pass learns about a group, which the second pass needs to choose its branch. */
 interface GroupShape {
   branches: number;
   hasElse: boolean;
@@ -36,10 +45,57 @@ interface GroupShape {
    * Treating it as one made the "last branch" selection read every guarded header as empty.
    */
   guard: boolean;
+  /**
+   * The condition's value wherever it is visible without evaluating macros: `#if 0` is false,
+   * and so is every test of `__cplusplus`, because this is a C validator and a C compiler never
+   * defines it. That is what makes the ubiquitous `#ifdef __cplusplus` / `extern "C" {` /
+   * `#endif` balance in both selections, closer present or not — 1,651 of the MSYS2 headers'
+   * guarded braces sit inside one (§84).
+   */
+  truth: boolean | null;
 }
 
 /** The macro an `#ifndef X` or `#if !defined(X)` tests, or null for any other condition. */
 const NEGATED_MACRO = /^!\s*defined\s*\(?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)?$/;
+
+/** Splits `expr` on `op` wherever it is not inside parentheses. */
+function splitTopLevel(expr: string, op: '||' | '&&'): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let k = 0; k < expr.length; k++) {
+    const ch = expr[k];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (depth === 0 && expr.startsWith(op, k)) {
+      parts.push(expr.slice(start, k));
+      start = k + op.length;
+      k += op.length - 1;
+    }
+  }
+  parts.push(expr.slice(start));
+  return parts;
+}
+
+/** Removes parentheses that enclose the whole of `expr`. */
+function stripOuterParens(expr: string): string {
+  let e = expr.trim();
+  while (e.startsWith('(') && e.endsWith(')')) {
+    let depth = 0;
+    let enclosesAll = true;
+    for (let k = 0; k < e.length - 1; k++) {
+      if (e[k] === '(') depth++;
+      else if (e[k] === ')') depth--;
+      if (depth === 0) {
+        enclosesAll = false;
+        break;
+      }
+    }
+    if (!enclosesAll) break;
+    e = e.slice(1, -1).trim();
+  }
+  return e;
+}
 
 /** `R"delim( … )delim"`. C has no raw strings; a C++ header named `.h` does, and `.h` is C here. */
 const RAW_STRING_PREFIXES: ReadonlySet<string> = new Set(['R', 'LR', 'uR', 'UR', 'u8R']);
@@ -58,12 +114,13 @@ const isDigit = (ch: string): boolean => ch >= '0' && ch <= '9';
  *  - **Directives are not code.** `#define BEGIN {` is macro text, so brackets on a directive
  *    line — spliced continuation lines included — never count, and a lone quote there is ordinary
  *    text (`#error don't …`).
- *  - **Conditional groups.** Brackets count in the first branch of each `#if`/`#ifdef`/`#ifndef`
- *    group only, which is what makes the ubiquitous `#ifdef __cplusplus` / `extern "C" {` /
- *    `#endif` guard balance, and an opener duplicated across branches. `#if 0` is the one branch
- *    whose deadness is visible without evaluating anything — and it is how C disables code, which
- *    may be unbalanced — so it never counts and its `#else` does. Groups must themselves balance:
- *    a region boundary that splits one is exactly the defect elision can introduce.
+ *  - **Conditional groups.** A build compiles one branch per group, so brackets count in one
+ *    branch per group — see `validate` for which. A condition whose value is visible without
+ *    evaluating macros decides it outright: `#if 0` (how C disables code, which may be unbalanced)
+ *    and every test of `__cplusplus`, which a C compiler never defines — what makes the ubiquitous
+ *    `#ifdef __cplusplus` / `extern "C" {` / `#endif` guard balance. An include guard's body always
+ *    counts. Groups must themselves balance: a region boundary that splits one is exactly the
+ *    defect elision can introduce.
  *  - **Line splicing.** Backslash-newline joins lines everywhere except inside a raw string,
  *    including inside literals and `//` comments.
  *  - **Literals.** Character literals, prefixed literals (`L`, `u8`), C23 digit separators
@@ -77,21 +134,23 @@ export class CValidator implements AstValidator {
   readonly language: TargetLanguage = 'c';
 
   /**
-   * Accepts content that balances under **either** of two consistent build configurations:
-   * the first live branch of every conditional group, or the last branch of every group (an
-   * implicit empty `#else` where there is none).
+   * Accepts content that balances under **either** of two consistent build configurations: the
+   * first live branch of every group, or the `#else` of every group that has one (see
+   * `BranchSelection`). Known conditions and include guards decide their groups in both.
    *
-   * The first draft tried only the first, and the census (DECISIONS §84) found that to be the
-   * whole of its false positives on real headers: libstdc++ opens `namespace tr1 {` in an `#elif`
-   * and closes it under a later `#if` with the same condition; `newapis.h` opens an `else {` only
-   * in an `#else` branch; CPython's internal headers carry an `extern "C" {` with no closer, which
-   * is valid C and broken only as C++; `sti.h` has a broken line inside `#ifdef NOT_IMPLEMENTED`.
-   * Every one is valid in some configuration, and "the last branch of every group" is one of them.
+   * The census (DECISIONS §84) is why it is two. Under the first alone, `newapis.h`, which opens
+   * an `else {` only in an `#else` branch, reads as broken; the second reads it as written.
    *
-   * What this gives up is known: damage inside a branch neither selection counts is invisible
-   * here, which is the drift gate's to see. What it keeps is everything outside conditionals,
-   * and conditional balance itself, which both passes check — so an elision that splits a group
-   * is still caught.
+   * What this gives up is known and small: a middle `#elif` branch is counted by neither, so
+   * damage confined to one is invisible here. What it keeps is every unconditional line, every
+   * feature block with no `#else`, and conditional balance itself, which both passes check — so
+   * an elision that splits a group is still caught.
+   *
+   * What it does not accept, deliberately: correlated groups (libstdc++'s tr1 header opens a
+   * namespace in an `#elif` and closes it under a later `#if` with the same condition) and broken
+   * code in a block nothing defines (`sti.h`'s `#ifdef NOT_IMPLEMENTED`). Accepting those means
+   * excluding blocks with no `#else`, which the first draft did, at the cost of every feature
+   * block. The census counts them as the false positives they are.
    */
   validate(content: string, _options?: AstValidatorOptions): AstCheckResult {
     const startTime = performance.now();
@@ -119,6 +178,10 @@ class CScanner {
   private readonly groups: ConditionalGroup[] = [];
   /** How many groups have opened so far — the next group's index. */
   private opened = 0;
+  /** Macros this file defines only inside dead code, so a later test of one is decided. */
+  private readonly deadOnlyMacros = new Set<string>();
+  /** Macros this file defines anywhere a build may compile, which overrides a dead definition. */
+  private readonly liveMacros = new Set<string>();
   private i = 0;
   private line = 1;
   private column = 0;
@@ -133,24 +196,81 @@ class CScanner {
   ) {}
 
   /**
-   * The branch a `last` pass counts in a group: the `#else`, or none when there is no `#else` —
-   * except an include guard, whose body always counts.
+   * The branch a `last` pass counts in a group. An include guard or a known-true condition is not
+   * a choice, so it is decided exactly as in the `first` pass. Otherwise a group with an `#else`
+   * counts the `#else` — after a known-false first branch too, where the `first` pass counts the
+   * next one — and a group without one counts the branch the `first` pass does, because the two
+   * configurations should differ only where a real build can.
    */
   private lastCountedBranch(index: number, fallback: number): number {
     const shape = this.knownShapes?.[index];
     if (shape === undefined) return fallback;
-    if (shape.guard) return 0;
-    return shape.hasElse ? shape.branches - 1 : -1;
+    if (shape.guard || shape.truth === true) return 0;
+    if (shape.hasElse) return shape.branches - 1;
+    if (shape.truth === false) return shape.branches > 1 ? 1 : -1;
+    return 0;
+  }
+
+  /** The rest of this directive line, comments removed and trimmed. */
+  private restOfDirective(): string {
+    const end = this.src.indexOf('\n', this.i);
+    return this.src
+      .slice(this.i, end === -1 ? this.src.length : end)
+      .replace(/\/\*.*?\*\//g, ' ')
+      .replace(/\/\/.*$/, '')
+      .trim();
+  }
+
+  /** The value of this group's condition in any C build, or null when it depends on the build. */
+  private conditionTruth(name: string): boolean | null {
+    const rest = this.restOfDirective();
+    if (name === 'ifdef') return this.evaluate(`defined(${rest})`);
+    if (name === 'ifndef') return this.evaluate(`!defined(${rest})`);
+    return this.evaluate(rest);
+  }
+
+  /**
+   * The value of a preprocessor condition in **any** C build, or null when it depends on the
+   * build. Only what needs no macro values is decided: `0` and `1`; `__cplusplus`, which a C
+   * compiler never defines; a macro this file defines only inside code no C build compiles
+   * (FreeType's `FT_NEED_EXTERN_C` is defined under `#ifdef __cplusplus` and tested later); and
+   * `!`, `&&` and `||` over those — `d3d11.h` writes `!defined(D3D11_NO_HELPERS) && defined(__cplusplus)`.
+   */
+  private evaluate(expr: string): boolean | null {
+    const e = stripOuterParens(expr);
+    const disjuncts = splitTopLevel(e, '||');
+    if (disjuncts.length > 1) {
+      const values = disjuncts.map((d) => this.evaluate(d));
+      if (values.includes(true)) return true;
+      return values.every((v) => v === false) ? false : null;
+    }
+    const conjuncts = splitTopLevel(e, '&&');
+    if (conjuncts.length > 1) {
+      const values = conjuncts.map((c) => this.evaluate(c));
+      if (values.includes(false)) return false;
+      return values.every((v) => v === true) ? true : null;
+    }
+    if (e.startsWith('!')) {
+      const value = this.evaluate(e.slice(1));
+      return value === null ? null : !value;
+    }
+    if (e === '0') return false;
+    if (e === '1') return true;
+    const tested = /^defined\s*\(?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)?$/.exec(e)?.[1] ?? (/^[A-Za-z_][A-Za-z0-9_]*$/.test(e) ? e : null);
+    if (tested === null) return null;
+    if (tested === '__cplusplus' || this.deadOnlyMacros.has(tested)) return false;
+    return null;
+  }
+
+  /** Whether the line being lexed sits in a branch no C build compiles. */
+  private inDeadCode(): boolean {
+    return this.groups.some((group) => group.dead);
   }
 
   /** Whether the group this `#ifndef`/`#if` opens is an include guard (see `GroupShape.guard`). */
   private opensIncludeGuard(name: string): boolean {
     const end = this.src.indexOf('\n', this.i);
-    const rest = this.src
-      .slice(this.i, end === -1 ? this.src.length : end)
-      .replace(/\/\*.*?\*\//g, ' ')
-      .replace(/\/\/.*$/, '')
-      .trim();
+    const rest = this.restOfDirective();
     const macro = name === 'ifndef' ? /^[A-Za-z_][A-Za-z0-9_]*$/.exec(rest)?.[0] : NEGATED_MACRO.exec(rest)?.[1];
     if (!macro || end === -1) return false;
     // The next line that is neither blank nor a comment must be `#define <macro>`.
@@ -375,12 +495,16 @@ class CScanner {
         const index = this.opened++;
         if (this.selection === 'first') {
           const guard = name !== 'ifdef' && this.opensIncludeGuard(name);
-          this.shapes[index] = { branches: 1, hasElse: false, guard };
-          const live = !(name === 'if' && this.restOfDirectiveIs('0'));
-          this.groups.push({ line, index, branch: 0, counting: live, counted: live });
+          const truth = this.conditionTruth(name);
+          this.shapes[index] = { branches: 1, hasElse: false, guard, truth };
+          // A known-false first branch never counts, and its next branch does; a known-true one
+          // counts and its later branches do not — `counted` carries that to `#elif`/`#else`.
+          const live = truth !== false;
+          this.groups.push({ line, index, branch: 0, truth, dead: truth === false, counting: live, counted: live });
         } else {
+          const truth = this.knownShapes?.[index]?.truth ?? null;
           const counting = this.lastCountedBranch(index, 0) === 0;
-          this.groups.push({ line, index, branch: 0, counting, counted: counting });
+          this.groups.push({ line, index, branch: 0, truth, dead: truth === false, counting, counted: counting });
         }
         return;
       }
@@ -394,6 +518,9 @@ class CScanner {
           return;
         }
         group.branch += 1;
+        // After a known-true first branch every later one is dead; after a known-false one the
+        // next branch may be live, so it is not.
+        group.dead = group.truth === true;
         if (this.selection === 'first') {
           const shape = this.shapes[group.index];
           if (shape) {
@@ -413,20 +540,24 @@ class CScanner {
           this.issue(line, column, '#endif without a matching #if', 'AST_UNBALANCED_CONDITIONAL');
         }
         return;
+      case 'define':
+      case 'undef': {
+        const macro = /^[A-Za-z_][A-Za-z0-9_]*/.exec(this.restOfDirective())?.[0];
+        if (!macro) return;
+        if (name === 'undef') {
+          this.liveMacros.delete(macro);
+          this.deadOnlyMacros.delete(macro);
+        } else if (this.inDeadCode()) {
+          if (!this.liveMacros.has(macro)) this.deadOnlyMacros.add(macro);
+        } else {
+          this.liveMacros.add(macro);
+          this.deadOnlyMacros.delete(macro);
+        }
+        return;
+      }
       default:
         return;
     }
-  }
-
-  /** Whether the rest of this directive line, comments removed, is exactly `expected`. */
-  private restOfDirectiveIs(expected: string): boolean {
-    const end = this.src.indexOf('\n', this.i);
-    const rest = this.src
-      .slice(this.i, end === -1 ? this.src.length : end)
-      .replace(/\/\*.*?\*\//g, ' ')
-      .replace(/\/\/.*$/, '')
-      .trim();
-    return rest === expected;
   }
 
   private bracket(ch: string): void {

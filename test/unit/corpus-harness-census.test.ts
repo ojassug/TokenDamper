@@ -46,10 +46,27 @@ describe('lexer census — the mutation control (§84)', () => {
       index: 4,
       insideConditional: false,
     });
-    expect(census.lastCloserSite('#ifndef A_H\n#define A_H\n#ifdef X\n}\n#endif\n#endif\n')).toMatchObject({
+    expect(census.lastCloserSite('#ifndef A_H\n#define A_H\n#ifdef __cplusplus\n}\n#endif\n#endif\n')).toMatchObject({
       index: 3,
       insideConditional: true,
     });
+  });
+
+  it('counts a feature block with no #else as code — both configurations count it (§84)', () => {
+    const site = census.lastCloserSite('int f(void) {\n#ifdef FEATURE\n  if (a) {\n  }\n#endif\n  return 0;\n}\n#ifdef REDIS_TEST\nint t(void) {\n}\n#endif\n')!;
+    expect(site).toMatchObject({ index: 9, insideConditional: false });
+    expect(census.siteClass(site)).toBe('code');
+  });
+
+  it('classes a branch a configuration can drop as conditional (§84)', () => {
+    // A site is code only when both configurations count its branch: either side of an
+    // #if/#else, a known-dead branch (__cplusplus, #if 0), and an #elif with no #else are not.
+    expect(census.lastCloserSite('#if A\nint f(void) {\n}\n#else\nint g(void) {\n}\n#endif\n')).toMatchObject({ insideConditional: true });
+    expect(census.lastCloserSite('#if 0\nint f(void) {\n}\n#endif\n')).toMatchObject({ insideConditional: true });
+    expect(census.lastCloserSite('#ifdef A\nint f(void) {\n}\n#elif B\nint g(void) {\n}\n#endif\n')).toMatchObject({ insideConditional: true });
+    expect(census.lastCloserSite('#if defined(__cplusplus)\n#elif A\n#else\nint g(void) {\n}\n#endif\n')).toMatchObject({ insideConditional: true });
+    // #if 0 / #else: the #else is the only branch either configuration takes, so it is code.
+    expect(census.lastCloserSite('#if 0\n#else\nint g(void) {\n}\n#endif\n')).toMatchObject({ insideConditional: false });
   });
 
   it('classes a macro continuation and a block comment apart from code (§84)', () => {

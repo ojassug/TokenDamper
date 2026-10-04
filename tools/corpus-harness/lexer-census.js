@@ -44,41 +44,157 @@ function opensIncludeGuard(lines, j) {
   return false;
 }
 
+const BRANCHES_GROUP = /^\s*#\s*(elif|elifdef|elifndef|else)\b/;
+const IF_LINE = /^\s*#\s*(ifdef|ifndef|if)\b(.*)$/;
+
+function splitTopLevel(expr, op) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let k = 0; k < expr.length; k++) {
+    if (expr[k] === '(') depth++;
+    else if (expr[k] === ')') depth--;
+    else if (depth === 0 && expr.startsWith(op, k)) {
+      parts.push(expr.slice(start, k));
+      start = k + op.length;
+      k += op.length - 1;
+    }
+  }
+  parts.push(expr.slice(start));
+  return parts;
+}
+
+function stripOuterParens(expr) {
+  let e = expr.trim();
+  while (e.startsWith('(') && e.endsWith(')')) {
+    let depth = 0;
+    let enclosesAll = true;
+    for (let k = 0; k < e.length - 1; k++) {
+      if (e[k] === '(') depth++;
+      else if (e[k] === ')') depth--;
+      if (depth === 0) {
+        enclosesAll = false;
+        break;
+      }
+    }
+    if (!enclosesAll) break;
+    e = e.slice(1, -1).trim();
+  }
+  return e;
+}
+
+/** `CValidator.evaluate`, mirrored: the value of a condition in any C build, or null. */
+function evaluate(expr, deadOnly) {
+  const e = stripOuterParens(expr);
+  const disjuncts = splitTopLevel(e, '||');
+  if (disjuncts.length > 1) {
+    const values = disjuncts.map((d) => evaluate(d, deadOnly));
+    if (values.includes(true)) return true;
+    return values.every((v) => v === false) ? false : null;
+  }
+  const conjuncts = splitTopLevel(e, '&&');
+  if (conjuncts.length > 1) {
+    const values = conjuncts.map((c) => evaluate(c, deadOnly));
+    if (values.includes(false)) return false;
+    return values.every((v) => v === true) ? true : null;
+  }
+  if (e.startsWith('!')) {
+    const value = evaluate(e.slice(1), deadOnly);
+    return value === null ? null : !value;
+  }
+  if (e === '0') return false;
+  if (e === '1') return true;
+  const m = /^defined\s*\(?\s*([A-Za-z_]\w*)\s*\)?$/.exec(e);
+  const tested = m ? m[1] : /^[A-Za-z_]\w*$/.test(e) ? e : null;
+  if (tested === null) return null;
+  return tested === '__cplusplus' || deadOnly.has(tested) ? false : null;
+}
+
+/** The value of the condition on an `#if`/`#ifdef`/`#ifndef` line in any C build, or null. */
+function conditionTruth(line, deadOnly = new Set()) {
+  const m = IF_LINE.exec(line.replace(/\r$/, ''));
+  if (!m) return null;
+  const rest = m[2].replace(/\/\*.*?\*\//g, ' ').replace(/\/\/.*$/, '').trim();
+  if (m[1] === 'ifdef') return evaluate(`defined(${rest})`, deadOnly);
+  if (m[1] === 'ifndef') return evaluate(`!defined(${rest})`, deadOnly);
+  return evaluate(rest, deadOnly);
+}
+
 /**
  * The line the mutation deletes — the last one that is a closing brace alone — and whether it
- * sits inside a conditional group.
+ * sits where a build configuration can drop it.
  *
- * The second half is what makes a miss explicable rather than merely counted. A C or C# lexer
- * accepts content that balances in *some* consistent build configuration (DECISIONS §84), so a
- * brace inside `#ifdef __cplusplus` can be deleted and leave valid C — which is not a lexer
- * failure but a mutation that produced no defect. Sites outside every group are counted by every
- * configuration, so a miss there is a real one, and they are reported apart.
+ * The second half is what makes a miss explicable rather than merely counted. `CValidator`
+ * accepts content that balances under either of two consistent configurations (DECISIONS §84),
+ * so a brace can be deleted and leave valid C wherever one configuration drops the line: a
+ * known-dead branch (`#ifdef __cplusplus`, `#if 0`), or either side of an `#if`/`#else`. A group
+ * with no `#else` is counted by both configurations, and an include guard always is, so a miss
+ * there is a real one and the site is code.
  *
- * Directive lines are matched without lexing, so a directive inside a block comment is counted;
- * that only moves a site between the two populations and is accepted for a census.
+ * Directive lines are matched without lexing, outside block comments only; a census tolerates
+ * that approximation, because it moves a site between populations rather than hiding it.
  */
 function lastCloserSite(content) {
   const lines = content.split('\n');
+  // One pass for the block-comment state of every line, and the groups with their branches.
+  const commentAt = [];
+  const groups = [];
+  const open = [];
+  const deadOnly = new Set();
+  const live = new Set();
+  let inComment = false;
+  for (let j = 0; j < lines.length; j++) {
+    commentAt[j] = inComment;
+    const text = lines[j];
+    if (!inComment) {
+      if (OPENS_GROUP.test(text)) {
+        const truth = conditionTruth(text, deadOnly);
+        const group = { open: j, end: lines.length, guard: opensIncludeGuard(lines, j), truth, branchStarts: [j], hasElse: false, dead: truth === false };
+        groups.push(group);
+        open.push(group);
+      } else if (BRANCHES_GROUP.test(text) && open.length > 0) {
+        const group = open[open.length - 1];
+        group.branchStarts.push(j);
+        group.dead = group.truth === true;
+        if (/^\s*#\s*else\b/.test(text)) group.hasElse = true;
+      } else if (CLOSES_GROUP.test(text) && open.length > 0) {
+        open.pop().end = j;
+      } else {
+        const def = /^\s*#\s*(define|undef)\s+([A-Za-z_]\w*)/.exec(text);
+        if (def && def[1] === 'undef') {
+          live.delete(def[2]);
+          deadOnly.delete(def[2]);
+        } else if (def && open.some((g) => g.dead)) {
+          if (!live.has(def[2])) deadOnly.add(def[2]);
+        } else if (def) {
+          live.add(def[2]);
+          deadOnly.delete(def[2]);
+        }
+      }
+    }
+    const lastOpen = text.lastIndexOf('/*');
+    const lastClose = text.lastIndexOf('*/');
+    if (lastOpen > lastClose) inComment = true;
+    else if (lastClose > lastOpen) inComment = false;
+  }
+
   for (let k = lines.length - 1; k >= 0; k--) {
     if (lines[k].replace(/\r$/, '').trim() !== '}') continue;
-    // A stack of open groups; an include guard is transparent, because its body always counts.
-    const open = [];
-    let inComment = false;
-    for (let j = 0; j < k; j++) {
-      const text = lines[j];
-      if (!inComment && OPENS_GROUP.test(text)) open.push(opensIncludeGuard(lines, j));
-      else if (!inComment && CLOSES_GROUP.test(text)) open.pop();
-      // Crude block-comment tracking — enough to say whether line k sits inside one.
-      const lastOpen = text.lastIndexOf('/*');
-      const lastClose = text.lastIndexOf('*/');
-      if (lastOpen > lastClose) inComment = true;
-      else if (lastClose > lastOpen) inComment = false;
-    }
+    // A site is code only when both of `CValidator`'s configurations count its branch; anywhere
+    // one of them drops it, deleting the brace can leave content that configuration accepts.
+    const droppable = groups.some((g) => {
+      if (k <= g.open || k >= g.end) return false;
+      const branch = g.branchStarts.filter((start) => start < k).length - 1;
+      const branches = g.branchStarts.length;
+      const first = g.guard || g.truth === true ? 0 : g.truth === false ? (branches > 1 ? 1 : -1) : 0;
+      const last = g.guard || g.truth === true ? 0 : g.hasElse ? branches - 1 : g.truth === false ? (branches > 1 ? 1 : -1) : 0;
+      return !(branch === first && branch === last);
+    });
     // The line continues a `#define` when the lines above it end in `\` back to a directive.
     let j = k - 1;
     while (j >= 0 && /\\\r?$/.test(lines[j])) j--;
     const inMacro = j < k - 1 && /^\s*#/.test(lines[j + 1]);
-    return { index: k, insideConditional: open.some((isGuard) => !isGuard), inMacro, inComment };
+    return { index: k, insideConditional: droppable, inMacro, inComment: commentAt[k] };
   }
   return null;
 }
