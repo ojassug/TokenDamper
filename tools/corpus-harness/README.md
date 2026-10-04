@@ -75,6 +75,17 @@ node tools/corpus-harness/manifest-in-place.js <root> --bucket redis --ext c,h -
 node tools/corpus-harness/measure.js <root> --variant deep --engine-mode deep --routes file
 ```
 
+## Function-deletion control (`function-deletion-control.js`)
+
+The hand-elided control behind DECISIONS §85. Every named block-bodied declaration in each file is
+deleted whole, and the drift gate must score `S_k > 0` in deep mode on every file that lost one;
+the fast score is recorded beside it. Needs both builds (`npm run build`, and
+`npx tsc -p packages/deep/tsconfig.json`).
+
+```bash
+node tools/corpus-harness/function-deletion-control.js <root> [<root> ...] --language c --out <dir> [--exclude deps]
+```
+
 ## Timing (`timing-run.js`)
 
 Per-file latency. **A separate invocation on purpose** — wall clock is noisy and

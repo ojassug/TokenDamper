@@ -37,6 +37,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fail-open, so what is lost is saving, not content. §83 left the call to ship time, and it
   ships: 2.0.0 takes the trade, by explicit decision.
 
+- **C and C# are validated (DECISIONS §84).** `.c`, `.h` and `.cs` files, and anything declared
+  `--language c`, `csharp`, `cs` or `c#`, are now checked by new bracket, quote and comment lexers
+  instead of going unvalidated. `csharp` is a new declarable language, and `.cs` is walked in
+  directories.
+
+  **This reaches Fast mode.** A file the lexer flags now falls back, and in a multi-file bundle the
+  whole bundle does. So the lexers were gated on a census registered in advance:
+
+  | | files | false positives | brace deletions caught (code sites) |
+  |---|---|---|---|
+  | C | 7,914 | 2 (0.025%) | 3,485 / 3,485 |
+  | C# | 6,230 | 0 | 6,163 / 6,163 |
+
+  The two C false positives are rejected by design: libstdc++'s correlated `tr1` groups, and
+  `sti.h`'s broken block under a macro nothing defines.
+
+  What the census changed in the lexers:
+  - **C accepts code that balances in either of two consistent build configurations**: the first
+    branch of every `#if`, or the `#else` of every group that has one.
+  - **Include guards always count.**
+  - **Some conditions are decided outright:** `#if 0`, every test of `__cplusplus`, and a macro
+    defined only in dead code.
+  - **A UTF-8 byte-order mark is whitespace.** It had flagged 549 Newtonsoft.Json files.
+
+  On the main corpus, output and `fallbackUsed` are identical on all 602 rows, and the 30 C headers
+  now report as checked. Damage confined to a branch one configuration drops is not caught, and
+  §84 counts those sites.
+
+- **In deep mode, C and C# function symbols come from the Deep backend (DECISIONS §85).** Before
+  this, a C file's only drift symbols were incidental `struct`/`enum` names, which survive body
+  elision. A deletion control removed every function from each file, and the result:
+
+  | | redis + curl (C) | Newtonsoft.Json + jellyfin (C#) |
+  |---|---|---|
+  | files with functions | 1,000 | 2,230 |
+  | deletions witnessed in deep mode | **1,000** | **2,230** |
+  | deletions the fast tracker scored 0 | 361 | 915 |
+
+  TypeScript, Python and Go keep their regex symbols in both modes. Output does not move; deep-mode
+  traces for C and C# gain `symbolsBefore` and `parserBackendAnswered`.
+
 ### Fixed
 - **The Gateway timeout file's other two header budgets also sat inside their own first byte's
   range.** The slow-body case's flake, fixed in v1.8.0, had siblings in the same file. All

@@ -7091,3 +7091,270 @@ path on which every gate passes over an elision inside a literal. **The default-
 aside for this change, not retired.** The next default-path change is held to zero new fallbacks
 again unless its own entry argues otherwise, and the release notes state this trade at the top
 rather than in a footnote.
+
+---
+
+## 84. R4 Step 1: Two Lexers, And A Census That Read Every Flag
+
+**Status: implemented and measured, 2026-10-04.** This is step 1 of R4's three, in the order the
+R4 design sets (`docs/superpowers/specs/2026-10-04-r4-c-csharp-and-v2-release-design.md` §3).
+Fast lexers let core name C and C#; backend symbols (§85) and regions (§86) come after. **Nothing
+elides C or C# at this step.** It does reach Fast mode, because `.c`, `.h` and `.cs` items stop
+being `validated: false`, and that is why the step was gated on a census registered in advance.
+
+### Why a lexer, and why this is the risky step
+
+Two R3 findings make a Fast lexer necessary even for languages that reduce only under Deep:
+
+- **The Fast chain must name a language before Deep is consulted.** JavaScript has a built
+  grammar and is unreachable for exactly this reason (§81).
+- **Deep cannot validate its own output.** The elision marker is not valid syntax in any
+  tree-sitter grammar (§81), so the post-condition check on elided C or C# has to be a lexer's.
+
+The risk is that validation runs over every item in the output bundle, with no subtraction of
+issues the input already had. A false flag on an untouched `.c` file attributes an error to that
+item. Phase 1c then reverts it, re-validation fails again, and a multi-file Fast-mode bundle falls
+back whole. Before this step a `.c` file could not cause that, because nothing checked it.
+
+### The bar, registered in the spec before either lexer existed
+
+- **False positives:** ≤ 0.1% of files, on ≥ 5,000 real files per language, with every flagged
+  file read.
+- **Mutation control:** ≥ 95% caught.
+- **Main corpus:** byte-identical, with `fallbackUsed` unchanged.
+
+### The census
+
+`tools/corpus-harness/lexer-census.js` runs the built Fast chain over every file of each tree. It
+lists **every** flagged file, not only Fast-versus-Deep disagreements. Listing only disagreements
+would hide a lexer false positive on any file the grammar also rejects, and that is a quarter of
+real C (§82). The tool refuses an empty set, and refuses a file the chain routes to the wrong
+validator. Trees are checkouts read in place, so each one is pinned by commit and by a hash over
+every file read.
+
+| language | tree | files | MB | flagged | code-site mutations caught |
+|---|---|---|---|---|---|
+| C | MSYS2 `ucrt64/include` (local) | 3,250 | 112.1 | 2 | 344 / 344 |
+| C | redis `7a72677e622d` (`deps/` skipped) + curl `8807773c6af3` | 1,327 | 18.7 | 0 | 950 / 950 |
+| C | git `8103b446517e` | 986 | 12.2 | 2 | 707 / 707 |
+| C | postgres `852fd5b86e1a` `src/` | 2,351 | 49.6 | 0 | 1,484 / 1,484 |
+| **C** | **total** | **7,914** | **192.7** | **4** | **3,485 / 3,485** |
+| C# | Newtonsoft.Json `52fa3aef1f2c` `Src/` + jellyfin `208c278b75ab` | 3,165 | 20.9 | 0 | 3,129 / 3,129 |
+| C# | PowerShell `caeff5e8a579` `src/` + ILSpy `77528d649dc2` | 3,065 | 44.1 | 0 | 3,034 / 3,034 |
+| **C#** | **total** | **6,230** | **65.1** | **0** | **6,163 / 6,163** |
+
+Tree hashes: MSYS2 `d95c3464cd6b`, redis+curl `b1914a1c1860`, git `57e9ba1d8139`, postgres
+`0cc28a4f30b9`, Newtonsoft+jellyfin `5c70f256fcfc`, PowerShell+ILSpy `e4ed21763b8c`.
+
+### What the census found, in the order it found it
+
+Every finding below became a failing known-answer test before it became a fix. The first draft of
+each lexer was wrong four times.
+
+**1. "The first branch of every `#if` group" is not a configuration real headers balance in.**
+The first pass flagged 4 of 3,250 MSYS2 headers, and all four are valid C:
+
+- libstdc++'s tr1 header opens `namespace tr1 {` in an `#elif` and closes it under a later `#if`
+  with the same condition;
+- `newapis.h` opens an `else {` only in an `#else` branch;
+- CPython's internal headers carry an `extern "C" {` with no closer, which is valid C and broken
+  only as C++;
+- `sti.h` has a broken line inside `#ifdef NOT_IMPLEMENTED`.
+
+**2. Adding "the last branch of every group" cleared all four, and broke the mutation control.**
+The catch rate fell from 96.6% to 2.0%. That configuration read an include guard
+(`#ifndef X_H` … `#endif`) as having an implicit empty `#else`, so every guarded header balanced
+whatever it contained. **An include guard is never a configuration choice**, because its body is
+compiled on first inclusion in every build. The guard is now recognised as `#ifndef X` or
+`#if !defined(X)` whose next directive is `#define X`, and its body always counts.
+
+**3. Excluding every `#if` with no `#else` was a blind spot.** 22% of the mutation sites in redis
+and curl sat inside feature blocks such as `#ifdef REDIS_TEST`, `#ifndef CURL_DISABLE_HTTP` and
+`#ifdef _WIN32`, and none was caught. The final rule makes the second configuration differ from
+the first only where a build can: it takes the `#else` of a group that has one, after a
+known-false first branch too, and a group without one is counted by both. What the blanket
+exclusion used to rescue is now decided instead. A condition is decided when its value needs no
+macro values:
+
+- `0` and `1`;
+- `__cplusplus`, which a C compiler never defines;
+- a macro this file defines only inside dead code;
+- `!`, `&&` and `||` over those.
+
+That covers FreeType's `FT_NEED_EXTERN_C`, which is defined under `#ifdef __cplusplus` and tested
+later, and `d3d11.h`'s `!defined(D3D11_NO_HELPERS) && defined(__cplusplus)`. Both had come back
+as false positives once feature blocks counted.
+
+**4. A byte-order mark hid a C# directive from line-start detection.** The first C# pass flagged
+549 of 3,165 files, every one with "`#endregion` without a matching `#region`" at line 24.
+Newtonsoft.Json files open with a UTF-8 BOM and then `#region License`, and the lexer read U+FEFF
+as a token. The CLI reads files the same way, so this was a production false positive, not a
+census artifact. U+FEFF is whitespace to both lexers.
+
+### The flags that remain
+
+- **C: 4 of 7,914.**
+  - **Two are true positives.** git's `t/t4051/appended1.c` and `appended2.c` are two halves of
+    one function, split on purpose for a diff test, so each file really is unbalanced.
+  - **Two are false positives, by design:** libstdc++'s correlated tr1 groups, and `sti.h`'s
+    broken block under a macro nothing defines. Accepting them means excluding blocks with no
+    `#else`, which is the blind spot finding 3 closed. `c-validator.test.ts` pins both as
+    rejected, so a change that makes them pass has probably reopened it.
+  - **False-positive rate: 2 / 7,914 = 0.025%**, against a bar of 0.1%.
+- **C#: 0 of 6,230.**
+
+### The mutation control — and a reclassification made after seeing data
+
+The control registered in advance deletes each file's last `}`-only line, and must catch ≥ 95%
+with every miss explained. Under the final rule, measured over all sites, C catches far fewer than
+that. The reason is that most C headers' last `}` line closes an `extern "C"` under
+`#ifdef __cplusplus`, and deleting it leaves valid C.
+
+**So the census now classes each site, and that classification was introduced after the first
+results. It is a deviation from the control as registered, and it is recorded as one.** The
+classes:
+
+- **code** — counted by both configurations. The bar applies, and every miss is read.
+- **macro** — on a `#define` continuation line. This is macro text, which the lexer never counts.
+- **comment** — inside a block comment.
+- **conditional** — in a branch one configuration drops: either side of an `#if`/`#else`, or a
+  known-dead branch.
+
+| class | C caught | C# caught |
+|---|---|---|
+| code | **3,485 / 3,485** | **6,163 / 6,163** |
+| macro | 2 / 69 | 0 / 0 |
+| comment | 3 / 4 | 22 / 22 |
+| conditional | 0 / 1,788 | 0 / 1 |
+
+**1,674 of the 1,788 C conditional sites (93.6%) are `__cplusplus` blocks**, where deleting the
+brace leaves valid C. The rest are branches of `#if`/`#else` groups, and the two-configuration
+rule cannot check those by construction: a brace deleted from one branch leaves the other
+configuration balanced. The census mirrors the validator's branch selection exactly, so "code" is
+precisely the set both configurations read. The ruling is the spec's own, which named "an
+inactive branch" as an explainable miss. What changed after the data is that the explained misses
+are counted as a class rather than listed one by one.
+
+### The main-corpus control
+
+The main corpus was frozen at `80880bd` (301 files, 602 rows). The baseline `dist` is `fa9edc9`,
+and the candidate carries the final lexers.
+
+- 572 rows are identical on all 33 fields.
+- The 30 that differ are exactly the `c` bucket's file-route rows: the MSYS2 headers. They differ
+  only in coverage fields: `astChecked` 0 → 1, `astUnchecked` and `uncheckedContentTypes`.
+- **`outputSha` and `fallbackUsed` are identical on all 602.** No header the corpus holds is
+  falsely flagged. The stdin route stays unchecked, because a pathless C item has no language.
+
+### What this does **not** establish
+
+- **Syntax.** Both lexers check balance, as every Fast validator does.
+  `validator-guarantee.test.ts` gains rows saying so: balanced nonsense and English prose pass.
+- **Damage confined to a branch one configuration drops.** These are the 1,788 conditional sites,
+  0 of them caught. That is the cost of accepting code valid in some configuration. In deep mode,
+  elision replaces a whole body interior rather than cutting into a branch. A statement split that
+  orphans an `#endif` is still caught, because conditional balance is checked in both passes.
+- **Any `#if` expression beyond the decided forms**, and macro values in general.
+- **C++.** `.h` is C here. Raw strings are handled so C++ headers named `.h` do not false-flag, and
+  nothing else of C++ is.
+- **Provenance as strong as a `collect.js` pin.** The trees are checkouts on one machine, recorded
+  by commit and content hash.
+
+---
+
+## 85. R4 Step 2: Backend Symbols Witness C And C# Function Loss
+
+**Status: implemented and measured, 2026-10-04.** This is step 2 of R4's three. In Deep mode, the
+drift gate takes C and C# function symbols from the Deep backend. **Still nothing elides C or C#**,
+because no region is reachable until §86.
+
+### The hazard this closes, measured before it was closed
+
+`extractItemSymbols` runs every regex over every item. For C it harvests **no** function symbols.
+For C# it harvests constructors and almost no methods, because `methodRegex` needs the name
+directly after a modifier, so `public int Bar(` is invisible to it. What it does harvest are
+`type:` symbols from `struct`, `class` and `enum`, and those survive body elision by construction.
+That is §56's hazard exactly: once regions exist, the gate would pass with `astMeasured: true`
+while having witnessed nothing.
+
+`tools/corpus-harness/function-deletion-control.js` measures it. For every file, every named
+block-bodied declaration is deleted whole, header and body. The drift gate then scores before
+against after.
+
+| | redis + curl (C) | Newtonsoft.Json + jellyfin (C#) |
+|---|---|---|
+| files | 1,327 | 3,165 |
+| files with a function to delete | 1,000 | 2,230 |
+| **deep mode, `S_k > 0`** | **1,000 / 1,000** | **2,230 / 2,230** |
+| fast mode, `S_k = 0` | **361** | **915** |
+
+**36% of C files and 41% of C# files could have every function deleted with the fast drift gate
+scoring zero.** In deep mode none can. The tool refuses an empty set, and refuses a set in which
+no file had a function to delete.
+
+### What changed
+
+- **`tokendamper-deep` names C and C# functions.** One rule decides both symbols and regions: a
+  declaration whose body is a `{ … }` block.
+  - C emits `fn:<name>` per `function_definition`.
+  - C# emits `method:<Type>.<name>`, qualified by the enclosing type as Go is by receiver. That
+    covers methods, constructors, `~` destructors, operators and accessors (`<Prop>.get`).
+  - C# local functions emit `fn:<name>`.
+  - Nothing else is emitted: no prototypes, no abstract or interface members, no
+    expression-bodied members, and **no types**. A symbol for a declaration elision cannot touch
+    survives every transform. Added to both sides, it raises `R_AST` and lowers `S_k` for the same
+    loss, which is §59's falling drift score. The shared regex already harvests
+    `struct`/`class`/`enum`, so the first draft's typedef and union names would only have diluted
+    the witness. The spec was amended for this before implementation.
+  - Both grammars still name every function after its body is replaced by the real elision-marker
+    text. That was verified on the marker before anything relied on it. Deep's `check()` rejects
+    that output, as §81 found; its `symbols()` does not lose the names.
+- **One module decides which items are deep-only.** `src/core/parser/deep-only.ts`
+  (`deepOnlyBackend`) is that module, so the drift gate, the region gate (§86) and the
+  language-support report cannot disagree.
+- **`DriftTracker` gains `engineMode`.** It is the region mode, not the validation mode, because
+  the symbols must witness what that mode can elide. For a deep-only item in deep mode, the
+  backend's names are unioned with the regex symbols.
+  - `validate()` passes its `coverageMode`.
+  - `compression:token-hashing`'s symbol-bearing probe passes the stage's mode, so its whole-item
+    refusal agrees with the gate.
+- **TypeScript, Python and Go keep their regexes in both modes**, so no existing drift score moves.
+
+### Order: a deviation from the skill, and why it is safe
+
+The `widen-language` skill orders a language **symbols → validator → regions**. Here the
+validator (§84) came first, because backend symbols are found through the Fast chain's language
+name. Without a C lexer, no item is ever `c` and no backend answers. The safety property behind
+the skill's order is that **regions come last**: a scanner shipped before symbols elides while
+the gate witnesses nothing. That property holds, and §86 is still the only step that reaches a
+region.
+
+### Nothing reduces yet, in either mode
+
+- **The four §82 corpora in deep mode at ratio 0.3, file route, 3,650 rows:**
+  - **every row is byte-identical**, with 0 failed runs;
+  - five rows report `fallbackUsed`. All five are symbol-free files (`symbolsBefore: 0`):
+    - redis's `asciilogo.h` (one string literal) and `cluster_slot_stats.h` (prototypes only);
+    - two Newtonsoft files that declare only a delegate;
+    - a jellyfin record made only of auto-properties.
+
+    Whole-item elision was attempted and refused by the measurement gate (§33), so their output
+    is their input. That is the gate working, not this step.
+- **The main corpus (602 rows):**
+  - in fast mode, output is identical to the §84 control;
+  - in deep mode, 572 rows are identical on all 33 fields. The 30 `c`-bucket file-route rows
+    differ only in coverage fields and `parserBackendAnswered`, which goes 0 → 1 because a backend
+    now answers for C. Three FLAC++ headers also gain backend symbols (`symbolsBefore` 7 → 9,
+    7 → 9, 13 → 28). **`outputSha` is identical on all 602.**
+
+### What this does **not** establish
+
+- **Overloads.** `method:K.F` names every overload of `F`, so deleting one of two is unwitnessed
+  while the other survives. This is the same resolution Go has. It is acceptable because body
+  elision never removes a declaration; the control deletes whole functions, and every file that
+  lost one registered it.
+- **Whether Deep's symbols should replace the regexes for TypeScript, Python and Go.** That is
+  §79's open question, and it stays open.
+- **Witnessing for anything but function loss.** A body elided correctly keeps its name by
+  design, which is §59's "signature-preserving body elision still scores 0.0000". Drift is the
+  second layer here; the lexer (§84) and the region tables (§86) are the first.
