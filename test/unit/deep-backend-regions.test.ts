@@ -292,8 +292,9 @@ describe('deep regions() vs Fast — nested functions (a discovery/policy diverg
     );
     expect(src.slice(deep[1]!.start, deep[1]!.end)).toBe('return b + 1');
 
-    // Fast: `scanPythonDefBodies` matches every `^\s*def\s.*:\s*$` line, nested ones included,
-    // for the same reason `scanBraceSpans` does above — nothing in the scanner tracks nesting.
+    // Fast: `scanPythonDefBodies` finds every `def` and `async def` header (§83), nested ones
+    // included, for the same reason `scanBraceSpans` does above — nothing in the scanner tracks
+    // nesting.
     // `dropOverlapping` then subsumes `inner`'s region into `outer`'s. One region survives, and
     // it is byte-identical to Deep's outer region.
     expect(fast).toHaveLength(1);

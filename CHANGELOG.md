@@ -18,6 +18,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   package page picks the links up at the next publish — 1.8.0 on the registry carries the old
   ones, and they redirect.
 
+- **The Fast Python scanner reads wrapped and `async def` headers (DECISIONS §83).** It needed
+  `def …:` on one line, so it skipped every black-wrapped signature and every `async def`. A header
+  now runs from a `def` or `async def` line to the line where its brackets close, and the body
+  starts after that line. A `def` inside a string no longer counts, which closes a false positive
+  the one-line rule already had. **This moves emitted bytes on the default path for Python.**
+
+  Measured over one frozen 297-file corpus at ratio 0.3, python file went **17.75% → 19.53%** and
+  stdin 17.39% → 19.16%. 49 of 594 rows differ, all Python. The Fast ceiling on pip went **43.23% →
+  68.84%**, against Deep's 67.90%. Fast now finds every region Deep finds: 359 of its 391 are
+  identical, and the rest are §81's leading-comment convention. Target adherence improved over the
+  rows that reduce in both arms, with the mean |achieved − 0.3| going 11.72 → 9.01pp.
+
+  **It costs fallbacks, all `CONSTRAINT_DIRECTIVE_LOST` in newly reachable bodies.** On pip, 2
+  recovered and 2 are new. pip has no `async def`, so two async corpora were frozen separately:
+  CPython's `asyncio` went 11.48% → 7.27% with fallbacks 10 → 13, and anyio 8.07% → 17.29% with
+  2 → 6. Across the three corpora, the file route has 2 recovered and 9 new. A fallback is
+  fail-open, so what is lost is saving, not content. §83 left the call to ship time, and it
+  ships: 2.0.0 takes the trade, by explicit decision.
+
 ### Fixed
 - **The Gateway timeout file's other two header budgets also sat inside their own first byte's
   range.** The slow-body case's flake, fixed in v1.8.0, had siblings in the same file. All

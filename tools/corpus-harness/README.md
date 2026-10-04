@@ -29,6 +29,31 @@ node tools/corpus-harness/timing-run.js <out-dir> --variant baseline
 `seam2.js <out-dir>` is a one-off analysis, not part of the loop — it scores candidate
 `looksLikeMarkdown` rules against the frozen corpus.
 
+## Elidable ceiling (`ceiling.js`)
+
+How much of a language's code sits inside function bodies elision could take — design §3.7's
+step 1, run **before** a language is implemented. DECISIONS §82 is the result and the method.
+
+```bash
+# a shipped language: spans from packages/deep, proven equal to core's selectElisionRegions
+node tools/corpus-harness/ceiling.js <out-dir>/corpus/typescript --language typescript --parity
+
+# a candidate: its grammar is not installed in this repo, so name the WASM
+node tools/corpus-harness/ceiling.js <corpus-root> --language rust --grammar <tree-sitter-rust.wasm> \
+  --out rust-crates.json --rows rust-crates.rows.jsonl [--exclude dir,dir] [--ext rs]
+```
+
+It walks a directory rather than a manifest — a candidate corpus is a checkout, not a
+`collect.js` freeze — and records a hash over every file it read instead. Source, test and
+generated files are reported apart, and so is every top-level directory, because one crate of
+generated bindings moved the Rust figure by thirty points before anyone looked (§82).
+
+Before it reports a number it refuses unless every node type it names exists in the grammar,
+every known-answer fixture passes, and every claimed `{ … }` body is one. Two lower bounds sit
+beside the ceiling — regions whose body parsed without an ERROR node, and the ceiling over
+error-free files — and an independent brace lexer counts regions whose boundaries it cannot
+balance. The pre-registered floor is `FLOOR`; `test/unit/corpus-harness-ceiling.test.ts` pins it.
+
 ## Timing (`timing-run.js`)
 
 Per-file latency. **A separate invocation on purpose** — wall clock is noisy and
