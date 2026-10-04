@@ -91,3 +91,23 @@ describe('the JSON validator is a real parser (M1)', () => {
     expect(validateItemAst(item('not json at all', 'json', 'a.json')).valid).toBe(false);
   });
 });
+
+describe('the C and C# validators check balance, not syntax (R4)', () => {
+  it.each([
+    ['c', 'a.c', 'int x = ;'],
+    ['c', 'a.c', 'this is plain English prose, not C at all.'],
+    ['csharp', 'A.cs', 'class { void ( ) { } }'],
+    ['csharp', 'A.cs', 'this is plain English prose, not C# at all.'],
+  ])('%s accepts balanced nonsense: %j', (language, path, content) => {
+    const result = validateItemAst(item(content, language, path));
+    expect(result.validated).toBe(true);
+    expect(result.valid).toBe(true);
+  });
+
+  it.each([
+    ['c', 'a.c', 'int f(void) {'],
+    ['csharp', 'A.cs', 'class A {'],
+  ])('%s rejects an unbalanced bracket, which is the guarantee it does make', (language, path, content) => {
+    expect(validateItemAst(item(content, language, path)).valid).toBe(false);
+  });
+});

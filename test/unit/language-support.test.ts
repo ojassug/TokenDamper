@@ -49,6 +49,7 @@ describe('which languages elision can reduce (H2)', () => {
     ['go', 'x.go', GO_BODY, true],
     ['rust', 'x.rs', JS_BODY, false],
     ['c', 'x.c', JS_BODY, false],
+    ['csharp', 'x.cs', JS_BODY, false],
     ['java', 'x.java', JS_BODY, false],
     ['shell', 'x.sh', JS_BODY, false],
     ['sql', 'x.sql', JS_BODY, false],
