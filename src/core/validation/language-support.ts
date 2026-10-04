@@ -1,5 +1,8 @@
 import type { ContextBundle, ContextItem, LanguageSupportReport } from '../model';
 import { supportsRegionElision } from '../elision/regions';
+import { isDeepOnlyLanguage } from '../parser/deep-only';
+import { DEFAULT_ENGINE_MODE, type EngineMode } from '../parser/mode';
+import { selectValidator } from './ast';
 
 /**
  * Answers, before any stage runs, whether elision can reduce these items at all.
@@ -42,20 +45,27 @@ import { supportsRegionElision } from '../elision/regions';
  * language-agnostic, but it is selection rather than elision and needs a multi-item bundle;
  * `noneSupported` is worded accordingly.
  */
-export function isElisionReducible(item: ContextItem): boolean {
-  return supportsRegionElision(item);
+export function isElisionReducible(item: ContextItem, mode: EngineMode = DEFAULT_ENGINE_MODE): boolean {
+  return supportsRegionElision(item, mode);
 }
 
 /**
  * Builds the bundle-level report. Pure and cheap — a validator lookup per item, no content scan.
+ *
+ * Mode-aware since R4: C and C# reduce only under deep mode with `tokendamper-deep` loaded, so the
+ * same file is supported in one mode and not the other, and the reason says which route exists.
  */
-export function describeLanguageSupport(bundle: ContextBundle): LanguageSupportReport {
+export function describeLanguageSupport(
+  bundle: ContextBundle,
+  mode: EngineMode = DEFAULT_ENGINE_MODE,
+): LanguageSupportReport {
   const unsupportedLanguages = new Set<string>();
   let supported = 0;
   let unsupported = 0;
+  let deepOnly = false;
 
   for (const item of bundle.items) {
-    if (isElisionReducible(item)) {
+    if (isElisionReducible(item, mode)) {
       supported += 1;
       continue;
     }
@@ -64,10 +74,14 @@ export function describeLanguageSupport(bundle: ContextBundle): LanguageSupportR
     // Falling back to the content type keeps the message concrete for an undeclared item rather
     // than printing `undefined`.
     unsupportedLanguages.add(item.language ?? item.contentType);
+    if (isDeepOnlyLanguage(selectValidator(item, 'fast')?.language)) deepOnly = true;
   }
 
   const languages = [...unsupportedLanguages].sort();
   const noneSupported = bundle.items.length > 0 && supported === 0;
+  const deepNote = deepOnly
+    ? ' C and C# reduce only under --engine-mode deep, which needs the tokendamper-deep package.'
+    : '';
 
   return {
     supported,
@@ -78,8 +92,8 @@ export function describeLanguageSupport(bundle: ContextBundle): LanguageSupportR
       ? {}
       : {
           reason: noneSupported
-            ? `Elision cannot reduce ${languages.join(', ')} in this build: there is no sub-item region selector for it, and whole-item elision cannot survive the drift gate. Elision reduces TypeScript/JavaScript, Python and Go only, so 0% here is structural rather than a property of this input. Whole-item pruning is language-agnostic but needs a multi-item bundle.`
-            : `${unsupported} of ${bundle.items.length} item(s) are in a language elision cannot reduce (${languages.join(', ')}); only whole-item pruning can affect them.`,
+            ? `Elision cannot reduce ${languages.join(', ')} in this build: there is no sub-item region selector for it, and whole-item elision cannot survive the drift gate. Fast mode reduces TypeScript/JavaScript, Python and Go, so 0% here is structural rather than a property of this input. Whole-item pruning is language-agnostic but needs a multi-item bundle.${deepNote}`
+            : `${unsupported} of ${bundle.items.length} item(s) are in a language elision cannot reduce (${languages.join(', ')}); only whole-item pruning can affect them.${deepNote}`,
         }),
   };
 }

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 // it. Importing the build would silently test a stale artifact.
 import { createDeepBackends } from '../../packages/deep/src/index';
 import { clearParserBackends, registerParserBackend } from '../../src/core/parser/registry';
-import { selectElisionRegions } from '../../src/core/elision/regions';
+import { selectElisionRegions, splitRegionIntoStatements, supportsRegionElision } from '../../src/core/elision/regions';
 import { createContextItem } from '../../src/core/model/constructors';
 import type { ParserAdapter } from '../../src/core/parser/types';
 
@@ -175,5 +175,48 @@ describe('selectElisionRegions mode switch — a real Deep backend still reconci
 
     // 3. Deep and fast mode agree exactly.
     expect(deepResult).toEqual(selectElisionRegions(nested));
+  });
+});
+
+describe('C and C# regions are deep-only (R4, spec §4.4)', () => {
+  const registerAll = async (): Promise<void> => {
+    for (const backend of await createDeepBackends()) {
+      if (backend.language !== 'javascript') registerParserBackend(backend as unknown as ParserAdapter);
+    }
+  };
+  // Each statement clears MIN_REGION_BYTES (104), or division drops it and finds nothing to split.
+  const STATEMENT = '  total = total + compute_area_of_rectangle_with_width_and_height(width_in_units, height_in_units, scale_factor);\n';
+  const C = 'int area(int width_in_units, int height_in_units, int scale_factor) {\n  int total = 0;\n' + STATEMENT.repeat(4) + '  return total;\n}\n';
+  const cItem = createContextItem({ id: 'c', kind: 'file', content: C, contentType: 'code', path: 'a.c' });
+  const CS = 'class K {\n  int F(int w) {\n' + '    var total = w * 2;\n'.repeat(8) + '    return total;\n  }\n}\n';
+  const csItem = createContextItem({ id: 'k', kind: 'file', content: CS, contentType: 'code', path: 'K.cs' });
+
+  it('selects nothing in fast mode, and never reaches the TypeScript scanner', async () => {
+    await registerAll();
+    expect(selectElisionRegions(cItem)).toEqual([]);
+    expect(supportsRegionElision(cItem, 'fast')).toBe(false);
+    expect(selectElisionRegions(csItem)).toEqual([]);
+  });
+
+  it('selects nothing in deep mode until a backend is registered', () => {
+    expect(selectElisionRegions(cItem, { mode: 'deep' })).toEqual([]);
+    expect(supportsRegionElision(cItem, 'deep')).toBe(false);
+  });
+
+  it('selects the body in deep mode with the backend registered', async () => {
+    await registerAll();
+    const c = selectElisionRegions(cItem, { mode: 'deep' });
+    expect(c).toHaveLength(1);
+    expect(C.slice(c[0]!.start, c[0]!.end)).toContain('return total;');
+    const cs = selectElisionRegions(csItem, { mode: 'deep' });
+    expect(cs).toHaveLength(1);
+    expect(CS.slice(cs[0]!.start, cs[0]!.end)).toContain('return total;');
+  });
+
+  it('divides a C body into statements under a ceiling in deep mode only', async () => {
+    await registerAll();
+    const [region] = selectElisionRegions(cItem, { mode: 'deep' });
+    expect(splitRegionIntoStatements(cItem, region!, { mode: 'deep' }).length).toBeGreaterThan(1);
+    expect(splitRegionIntoStatements(cItem, region!)).toEqual([]);
   });
 });

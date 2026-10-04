@@ -163,7 +163,11 @@ export function validate(
   // Computed over `before`, not `after`: the question is what this build could have done to the
   // input, which is a property of the input's languages and does not depend on what the stages
   // managed to do (audit H2).
-  const languageSupport: LanguageSupportReport = describeLanguageSupport(before);
+  const languageSupport: LanguageSupportReport = describeLanguageSupport(
+    before,
+    // The region mode: C and C# are reducible only where a Deep backend can find their regions.
+    options?.coverageMode ?? options?.mode ?? DEFAULT_ENGINE_MODE,
+  );
 
   const driftReport = driftTracker.calculateDrift(before, after);
 

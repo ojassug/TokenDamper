@@ -202,7 +202,15 @@ export function runTokenHashingStage(
     // item then has *all* of its regions removed in one call. Measured, that made the target
     // inert exactly where it is most used — 0.1, 0.3, 0.5 and 0.7 all produced **69.09%** on the
     // same file. The ceiling has to bind at the granularity the compression happens at.
-    const regions = trimRegionsToCeiling(item, allRegions, runningTokens, ceiling, priceMarker, tokenizer);
+    const regions = trimRegionsToCeiling(
+      item,
+      allRegions,
+      runningTokens,
+      ceiling,
+      priceMarker,
+      tokenizer,
+      options?.mode ?? 'fast',
+    );
     if (regions.length > 0) {
       const regionOutcome = elideRegions({
         item,
@@ -437,6 +445,8 @@ function trimRegionsToCeiling(
    */
   priceMarker: (regionText: string, describes: string) => string,
   tokenizer: TokenizerAdapter,
+  /** The region mode, so a deep-only language's body can be divided too (R4, §86). */
+  mode: EngineMode,
 ): ReadonlyArray<{ readonly start: number; readonly end: number }> {
   if (ceiling === undefined || regions.length === 0) {
     return regions;
@@ -464,7 +474,7 @@ function trimRegionsToCeiling(
   // A region that does not divide into more than one usable span yields `[]`, and the whole
   // region is kept as the candidate. "Did not divide" is not "nothing to elide".
   const candidates = regions.flatMap((region) => {
-    const statements = splitRegionIntoStatements(item, region);
+    const statements = splitRegionIntoStatements(item, region, { mode });
     return statements.length > 1 ? statements : [region];
   });
 
