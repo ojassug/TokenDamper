@@ -80,7 +80,7 @@ describe('audit LOW findings', () => {
         'pass_through',
       );
       expect(loadConfig({ env: { TOKENDAMPER_LOG_LEVEL: 'debug' } }).logging.level).toBe('debug');
-      expect(loadConfig({ env: { TOKENDAMPER_APP_MODE: 'bench' } }).appMode).toBe('bench');
+      expect(loadConfig({ env: { TOKENDAMPER_ENGINE_MODE: 'deep' } }).engineMode).toBe('deep');
     });
   });
 

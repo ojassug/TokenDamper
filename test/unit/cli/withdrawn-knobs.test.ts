@@ -86,21 +86,22 @@ describe('withdrawn dead knobs', () => {
       expect(err.join('')).toContain('--mode');
     });
 
-    it('rejects TOKENDAMPER_APP_MODE=explain rather than ignoring it', () => {
-      // v1.6.0 established this direction for the `TOKENDAMPER_*` enums: an unrecognised value is
-      // a hard error, and nothing that worked stops working, because the setting never took
-      // effect in the first place.
-      expect(() => loadConfig({ cwd: dir(), env: { TOKENDAMPER_APP_MODE: 'explain' } })).toThrow(
-        /TOKENDAMPER_APP_MODE/,
-      );
+    // Until 2.0.0 these two were hard errors, the direction v1.6.0 set for the `TOKENDAMPER_*`
+    // enums. 2.0.0 withdrew the setting itself (DECISIONS §87): any value now loads, with a notice
+    // naming the replacement, because nothing reads it and failing a startup over it would turn a
+    // configuration that worked yesterday into an error. `config-engine-mode.test.ts` pins the
+    // notice.
+    it('loads TOKENDAMPER_APP_MODE=explain with a notice rather than an error (2.0.0)', () => {
+      const config = loadConfig({ cwd: dir(), env: { TOKENDAMPER_APP_MODE: 'explain' } });
+      expect(config.notices.join('\n')).toContain('TOKENDAMPER_APP_MODE was withdrawn in 2.0.0');
     });
 
-    it('rejects app.mode: explain in a config file', () => {
+    it('loads app.mode: explain in a config file with a notice (2.0.0)', () => {
       const cwd = dir();
       const configPath = join(cwd, 'tokendamper.config.json');
       writeFileSync(configPath, JSON.stringify({ app: { mode: 'explain' } }), 'utf8');
 
-      expect(() => loadConfig({ cwd, configPath })).toThrow(/Invalid TokenDamper config file/);
+      expect(loadConfig({ cwd, configPath }).notices.join('\n')).toContain('app.mode was withdrawn in 2.0.0');
     });
   });
 

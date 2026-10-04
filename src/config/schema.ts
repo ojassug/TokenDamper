@@ -13,6 +13,8 @@ export const DEFAULT_CONFIG: TokenDamperConfig = {
   appName: 'TokenDamper',
   appVersion: TOKENDAMPER_VERSION,
   appMode: 'optimize',
+  engineMode: 'fast',
+  notices: [],
   traceOutput: 'stderr',
   planner: {
     defaultMode: 'pass_through',
@@ -45,11 +47,15 @@ export function isConfigFileShape(value: unknown): value is ConfigFileShape {
     (file.configSchemaVersion === undefined ||
       file.configSchemaVersion === LEGACY_CONFIG_SCHEMA_VERSION ||
       file.configSchemaVersion === CURRENT_CONFIG_SCHEMA_VERSION) &&
+    // `app.mode` is deliberately not validated: withdrawn in 2.0.0 (DECISIONS §87), it loads with
+    // a notice rather than failing a file that worked yesterday — the `traceOutput` precedent.
     (file.app === undefined ||
       (isPlainObject(file.app) &&
         (file.app.name === undefined || typeof file.app.name === 'string') &&
-        (file.app.version === undefined || typeof file.app.version === 'string') &&
-        (file.app.mode === undefined || isAppMode(file.app.mode)))) &&
+        (file.app.version === undefined || typeof file.app.version === 'string'))) &&
+    (file.engine === undefined ||
+      (isPlainObject(file.engine) &&
+        (file.engine.mode === undefined || file.engine.mode === 'fast' || file.engine.mode === 'deep'))) &&
     (file.planner === undefined ||
       (isPlainObject(file.planner) &&
         (file.planner.defaultMode === undefined || isOptimizationMode(file.planner.defaultMode)))) &&
@@ -86,10 +92,6 @@ function isBudgetShape(value: unknown): boolean {
       (Array.isArray(value.preserveKinds) &&
         value.preserveKinds.every((kind) => typeof kind === 'string')))
   );
-}
-
-function isAppMode(value: unknown): value is TokenDamperConfig['appMode'] {
-  return value === 'optimize' || value === 'bench';
 }
 
 function isOptimizationMode(value: unknown): boolean {

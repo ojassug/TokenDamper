@@ -1,10 +1,10 @@
 import type {
-  AppMode,
   LogLevel,
   OptimizationBudget,
   OptimizationMode,
   ResolvedConfig,
 } from '../core/model';
+import type { EngineMode } from '../core/parser/mode';
 
 /**
  * The serialized configuration shape accepted from disk.
@@ -14,7 +14,12 @@ export interface ConfigFileShape {
   readonly app?: {
     readonly name?: string;
     readonly version?: string;
-    readonly mode?: AppMode;
+    /** Withdrawn in 2.0.0 (DECISIONS §87). Loaded, never read, and reported as a notice. */
+    readonly mode?: unknown;
+  };
+  /** The engine backend (2.0.0): `fast` (default) or `deep`. Read by `optimize` only. */
+  readonly engine?: {
+    readonly mode?: EngineMode;
   };
   readonly planner?: {
     readonly defaultMode?: OptimizationMode;
@@ -32,7 +37,7 @@ export interface ConfigFileShape {
  * The supported CLI overrides for the frozen MVP configuration loader.
  */
 export interface ConfigOverrides {
-  appMode?: AppMode;
+  engineMode?: EngineMode;
   plannerMode?: OptimizationMode;
   minimumConfidence?: number;
   logLevel?: LogLevel;
@@ -54,4 +59,8 @@ export interface LoadConfigOptions {
  */
 export type TokenDamperConfig = ResolvedConfig & {
   readonly configSchemaVersion?: string;
+  /** Which backend discovers regions. Read by `optimize` only; bench and mcp refuse `deep`. */
+  readonly engineMode: EngineMode;
+  /** Startup notices — withdrawn keys still present. Written once to stderr by the CLI. */
+  readonly notices: ReadonlyArray<string>;
 };
