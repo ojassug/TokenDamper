@@ -49,6 +49,45 @@ describe('CValidator accepts balanced C', () => {
   });
 });
 
+describe('CValidator accepts a file that balances in some build configuration (§84 census)', () => {
+  // Each case is the minimal shape of a real header the census flagged (DECISIONS §84). Every one
+  // is valid C under some configuration and unbalanced under "the first branch of every group",
+  // which is all the first draft tried. The lexer now also tries "the last branch of every group"
+  // (an implicit empty #else when there is none) and accepts if either balances.
+  it.each([
+    [
+      'a namespace opened in an #elif and closed under a later #if (libstdc++ tr1)',
+      'namespace std {NL#if USE_STDNL#elif defined(TR1)NLnamespace tr1 {NL#elseNL#endifNL  int x;NL#if !USE_STD && defined(TR1)NL} // tr1NL#endifNL}NL',
+    ],
+    [
+      'an else-brace opened only in an #else branch (newapis.h)',
+      'void f(int a) {NL#if defined(UNICODE)NL  g();NL#elseNL  if (a) {NL    h();NL  } else {NL#endifNL    k();NL  }NL}NL',
+    ],
+    ['an extern "C" guard with no closer, valid as C (CPython)', '#ifdef __cplusplusNLextern "C" {NL#endifNLint x;NL'],
+    ['a broken line in a never-defined branch (sti.h)', 'struct S {NL#ifdef NOT_IMPLEMENTEDNL  M(f(a) PURE;NL#endifNL};NL'],
+  ])('%s', (_label, template) => {
+    const src = template.replace(/NL/g, String.fromCharCode(10));
+    expect(verdict(src).issues).toEqual([]);
+  });
+
+  it('never treats an include guard as a configuration choice — its body is always compiled', () => {
+    // The census found the "last branch of every group" selection treating `#ifndef X_H` /
+    // `#define X_H` / … / `#endif` as an empty #else, which made every guarded header balance
+    // whatever it contained: deleting a brace inside one was caught 0.1% of the time.
+    expect(verdict('#ifndef A_H\n#define A_H\nstruct S {\n  int x;\n#endif\n').valid).toBe(false);
+    expect(verdict('#if !defined(A_H)\n#define A_H\nstruct S {\n  int x;\n#endif\n').valid).toBe(false);
+    expect(verdict('#ifndef A_H\n#define A_H\nstruct S { int x; };\n#endif\n').valid).toBe(true);
+  });
+
+  it('still rejects a file that balances in no configuration', () => {
+    expect(verdict('#if A\n{\n#else\n{\n#endif\nint x;\n').valid).toBe(false);
+  });
+
+  it('still rejects a split conditional in every configuration', () => {
+    expect(codes('int x;\n#else\n}\n#endif\n')).toContain('AST_UNBALANCED_CONDITIONAL');
+  });
+});
+
 describe('CValidator rejects what it guarantees against', () => {
   it.each([
     ['an unclosed brace', 'int f(void) {\n  return 0;\n', 'AST_UNBALANCED_BRACKET'],
