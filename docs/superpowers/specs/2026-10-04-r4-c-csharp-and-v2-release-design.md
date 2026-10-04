@@ -149,14 +149,19 @@ C# it harvests constructors but almost no methods, because `methodRegex` needs t
 after a modifier. `struct`, `class` and `enum` yield `type:` symbols, and those survive body
 elision by construction. That is §56's hazard exactly.
 
-- **`tokendamper-deep` `symbols()` gains C and C#:**
-  - C: `fn:<name>` per `function_definition`, plus `type:<name>` for named struct, union and enum
-    specifiers and typedefs.
-  - C#: `method:<Type>.<name>` per method, constructor, destructor and operator, qualified by the
-    enclosing type as Go qualifies by receiver. Plus `fn:<name>` per local function and `type:`
-    per class, struct, interface, enum and record.
-  - Prototypes and abstract or interface members are **not** harvested. A declaration with no
-    body would add a symbol that survives elision by construction.
+- **`tokendamper-deep` `symbols()` gains C and C#.** One rule decides both symbols and regions:
+  **a declaration whose body is a `{ … }` block.**
+  - C: `fn:<name>` per `function_definition`.
+  - C#: `method:<Type>.<name>` per method and constructor, and
+    `method:<Type>.~<name>`, `method:<Type>.operator…` and `method:<Type>.<Prop>.<get|set>` per
+    destructor, operator and accessor, all qualified by the enclosing type as Go qualifies by
+    receiver. Plus `fn:<name>` per local function.
+  - **Not harvested:** prototypes, abstract and interface members, expression-bodied members, and
+    types. A symbol for a declaration elision cannot touch survives every transform by
+    construction. That raises `R_AST` and lowers `S_k` for the same loss, which is §59's hazard.
+    Types already come from the shared regex (`struct`, `class`, `enum`), and adding typedef or
+    union names would only dilute the witness. *(Amended from the first draft, which listed
+    types; the plan's review caught the dilution.)*
 - **The drift gate uses backend symbols only for a language that has no Fast extractor, and only
   in Deep mode.** For such an item, symbols are the regex set ∪ `backend.symbols(content)`.
   TypeScript, Python and Go keep their regexes unchanged in both modes, so no existing row moves.
@@ -227,6 +232,9 @@ In Deep mode the C bucket's rows may move. That is the feature, and every differ
   - `files` is `dist`, `README.md` and `LICENSE`.
   - It carries `repository` (with `directory: packages/deep`), `homepage`, `engines` matching
     core's, and `peerDependencies: { "tokendamper": "^2.0.0" }`.
+  - **The peer is marked optional** in `peerDependenciesMeta`. A required peer makes npm try to
+    fetch `tokendamper@^2.0.0` from the registry during a workspace `npm ci`, which fails until
+    2.0.0 is published. It would break CI on every commit before the release.
   - `dependencies` gain `tree-sitter-c` and `tree-sitter-c-sharp`, at the versions §82 measured
     (0.24.1 and 0.23.5) unless the pinned `web-tree-sitter` rejects them.
   - A `prepublishOnly` runs clean and build.
