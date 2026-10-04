@@ -29,6 +29,26 @@ const APP_MODE_ENV_NOTICE =
   'TOKENDAMPER_APP_MODE was withdrawn in 2.0.0 and is ignored. For the engine use TOKENDAMPER_ENGINE_MODE (fast|deep).';
 
 /**
+ * Variables withdrawn before 2.0.0, with their flags. The flags have been parse errors since; the
+ * variables were documented as rejected too, but measured while writing DECISIONS §87 they loaded
+ * silently — nothing read them, and nothing said so. They now get `TOKENDAMPER_APP_MODE`'s notice.
+ */
+const EARLIER_WITHDRAWN_ENV: ReadonlyArray<readonly [string, string]> = [
+  ['TOKENDAMPER_RISK_TOLERANCE', 'v1.2.0'],
+  ['TOKENDAMPER_MAX_OUTPUT_TOKENS', 'v1.2.0'],
+  ['TOKENDAMPER_MAX_LATENCY_MS', 'v1.2.0'],
+  ['TOKENDAMPER_TRACE_OUTPUT', 'v1.6.1'],
+];
+
+function withdrawnEnvNotices(env: NodeJS.ProcessEnv): string[] {
+  const notices = env.TOKENDAMPER_APP_MODE !== undefined ? [APP_MODE_ENV_NOTICE] : [];
+  for (const [variable, version] of EARLIER_WITHDRAWN_ENV) {
+    if (env[variable] !== undefined) notices.push(`${variable} was withdrawn in ${version} and is ignored.`);
+  }
+  return notices;
+}
+
+/**
  * Loads and resolves the frozen configuration contract.
  */
 export function loadConfig(options: LoadConfigOptions = {}): TokenDamperConfig {
@@ -109,7 +129,7 @@ function applyEnvOverrides(base: TokenDamperConfig, env: NodeJS.ProcessEnv): Tok
     engineMode:
       parseEnvEnum('TOKENDAMPER_ENGINE_MODE', env.TOKENDAMPER_ENGINE_MODE, ['fast', 'deep'] as const) ??
       base.engineMode,
-    notices: env.TOKENDAMPER_APP_MODE !== undefined ? [...base.notices, APP_MODE_ENV_NOTICE] : base.notices,
+    notices: [...base.notices, ...withdrawnEnvNotices(env)],
     planner: {
       defaultMode: parsePlannerMode(env.TOKENDAMPER_PLANNER_MODE) ?? base.planner.defaultMode,
     },

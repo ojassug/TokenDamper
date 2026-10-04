@@ -80,6 +80,19 @@ describe('app.mode is a withdrawn key (2.0.0)', () => {
     expect(loadConfig({ cwd: dirWith(), env: {} }).notices).toEqual([]);
   });
 
+  // The earlier withdrawals were documented as "rejected rather than ignored", but only their
+  // flags were: the variables loaded silently. Measured while writing §87, so they get the same
+  // notice as TOKENDAMPER_APP_MODE.
+  it.each([
+    ['TOKENDAMPER_RISK_TOLERANCE', 'v1.2.0'],
+    ['TOKENDAMPER_MAX_OUTPUT_TOKENS', 'v1.2.0'],
+    ['TOKENDAMPER_MAX_LATENCY_MS', 'v1.2.0'],
+    ['TOKENDAMPER_TRACE_OUTPUT', 'v1.6.1'],
+  ])('gives the earlier withdrawn %s the same notice', (variable, version) => {
+    const config = loadConfig({ cwd: dirWith(), env: { [variable]: 'high' } });
+    expect(config.notices.join('\n')).toContain(`${variable} was withdrawn in ${version} and is ignored`);
+  });
+
   it('writes the notice to stderr once per run', () => {
     const cwd = dirWith({ app: { mode: 'optimize' } });
     const s = streams();
