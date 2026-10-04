@@ -1,14 +1,44 @@
 {
   "name": "tokendamper-deep",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Deep-mode ParserAdapter backends for TokenDamper, backed by tree-sitter (WASM). Unpublished in R3: it exists to be measured against the shipped Fast path.",
+  "version": "1.8.0",
+  "description": "Deep mode for TokenDamper: tree-sitter (WASM) parser backends. C and C# reduce only through it; it also answers for TypeScript, Python and Go.",
   "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ojassug/TokenDamper.git",
+    "directory": "packages/deep"
+  },
+  "homepage": "https://github.com/ojassug/TokenDamper/tree/main/packages/deep",
+  "keywords": [
+    "tokendamper",
+    "tree-sitter",
+    "context-optimization",
+    "token-reduction"
+  ],
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
+  "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "peerDependencies": {
+    "tokendamper": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "tokendamper": {
+      "optional": true
+    }
   },
   "dependencies": {
     "tree-sitter-c": "^0.24.1",

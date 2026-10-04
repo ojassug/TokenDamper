@@ -8,11 +8,10 @@ interface DeepModule {
 /**
  * Loads `tokendamper-deep` and registers every backend it carries.
  *
- * **Two resolution paths, and the order is the migration.** The bare specifier is the R4
- * shape, once the package is published or linked. The repo-relative path is the R3 shape: the
- * package is `private: true` and the workspace is not linked into `node_modules`, and linking
- * it means an `npm install` that reaches the main checkout. `deep-parity.js` resolves it
- * exactly this way and prints the same build instruction.
+ * **Two resolution paths.** The bare specifier is the published package, `tokendamper-deep`,
+ * installed next to `tokendamper` (2.0.0, DECISIONS §87) — or the workspace link in a checkout
+ * that has run `npm ci`. The repo-relative path serves a checkout whose `node_modules` has no
+ * link but whose `packages/deep` is built; `deep-parity.js` resolves it the same way.
  *
  * **An empty registry is an error, not a fall-through.** `--mode deep` that silently
  * ran Fast is invariant 10 in its purest form — a green result from a path that never
@@ -58,8 +57,9 @@ async function loadDeepModule(): Promise<DeepModule> {
   }
 
   throw new Error(
-    'tokendamper: --mode deep could not load tokendamper-deep. It is unpublished in R3, ' +
-      'so build it first:\n  npx tsc -p packages/deep/tsconfig.json\nTried:\n  ' +
+    'tokendamper: --mode deep needs the tokendamper-deep package. Install it next to tokendamper ' +
+      '(npm install tokendamper-deep — global if tokendamper is global). From a repository ' +
+      'checkout, build it instead:\n  npx tsc -p packages/deep/tsconfig.json\nTried:\n  ' +
       failures.join('\n  '),
   );
 }
