@@ -6663,3 +6663,169 @@ pruner that costs 135ms.
   its `limit` raised 64 -> 80, because for the first time the limit BOUND and was silently
   dropping files rather than refusing. Aggregates here are **not** comparable to the 63-file R2
   baselines; per-row over one frozen corpus still is.
+
+## 82. R4 Step 1: Three Candidates Clear The Floor, And Five Are Doc-Comment Languages
+
+**Status: measured, 2026-09-23.** Design §3.7 step 1 — the elidable ceiling of every candidate
+with a prebuilt grammar, on two independent corpora each. **Nothing is implemented beyond the
+instrument; no emitted byte moved.** Engine `0b0aa21`, `dist` unchanged from it.
+
+### The floor was fixed before the first candidate number existed
+
+**At least 40% of source bytes — test and generated excluded — on each of the language's two
+corpora, never averaged.** Set by the project owner on 2026-09-23, after the three shipped
+languages had been through the instrument and before any candidate had. 40% sits below every
+ceiling a shipped language has measured under either instrument; the lowest is Python under Fast,
+43.23% on pip 26.2.1. So it reads as *at least as much material as the weakest language already
+shipped*. It is `FLOOR` in the instrument, and `test/unit/corpus-harness-ceiling.test.ts` pins it
+so that moving it is a visible diff.
+
+It is a floor on **material**, not a projection of reduction. See the last section.
+
+### The instrument, and what it refused before it was believed
+
+`tools/corpus-harness/ceiling.js`. A candidate's spans come from a per-language tree-sitter node
+table. After that, core's own filters decide: `dropOverlapping`, `MIN_REGION_BYTES` (104) and
+`isSubstantiveRegion`. The instrument refuses to report unless three things hold:
+
+- every node type and field in the table exists in the loaded grammar;
+- every known-answer fixture passes. There are 44 across the eight languages, and each language
+  has at least one fixture that must find a region and one that must find none;
+- every claimed brace body is a `{ … }` pair.
+
+On the shipped languages, `--parity` reproduces core's `selectElisionRegions` (deep) on
+**192/192** files: 67 TypeScript, 45 Python, 80 Go. That is the proof that the filter pipeline
+is core's own rather than a copy of it. Mutation-checked as well: 10 single-point breakages
+(eight table entries, one per language, and two code paths) produced 10 refusals.
+
+**Every check fired on something real before the first candidate ran:**
+
+- The fixtures caught Ruby's endless method (`def sq(x) = x * x`) being counted as a body. The
+  grammar puts an expression in `method.body`.
+- The node-type check caught that the Kotlin grammar names no fields at all.
+- The unit test caught C++, PHP and Kotlin fixture sets with no must-find-nothing case, which
+  cannot fail in that direction.
+- Reading the trees before measuring caught three classification gaps: `alloctests` and
+  `coretests` in the Rust stdlib, `Newtonsoft.Json.FuzzTests`, and stdarch's generated headers.
+  Those headers say `DO NOT MODIFY`, not `DO NOT EDIT`.
+
+### The measurement
+
+The source ceiling per corpus. In brackets is the clean-body lower bound: the regions whose body
+parsed without an ERROR/MISSING node. Every corpus reported here met all three checks.
+
+| language | corpus A | corpus B | clears |
+|---|---|---|---|
+| Rust | crates 13.9% | stdlib 29.2% | no |
+| Java | guava 24.8% | jenkins 33.3% | no |
+| **C#** | Newtonsoft.Json 51.3% [44.7%] | jellyfin 53.7% [53.7%] | **yes** |
+| **C** | redis 65.5% [60.7%] | curl 58.0% [52.2%] | **yes** |
+| **C++** | abseil 56.4% [**26.7%**] | bitcoin 60.9% [54.1%] | **yes, weakly — below** |
+| Ruby | rails 34.6% | rubocop 38.6% | no |
+| PHP | laravel 36.6% | WordPress 55.9% | no — split |
+| Kotlin | okhttp 33.2% | ktor 29.0% | no |
+
+The same instrument on the shipped languages: TypeScript 58.48%, Python 67.90%, Go source 57.54%
+and tests 84.54%. The Fast figures on the same files are TypeScript 57.21% and Python 43.23%.
+
+**Test files are the larger prize in every language**, at 55.9% to 98.7%. rubocop's 98.7% is
+RSpec: one `describe` block per file. Counting functions only, it reads 0.25%.
+
+### Why five fall below: measured, not inferred
+
+Source bytes decomposed per corpus. **Comments outside function bodies are the largest single
+share in every below-floor corpus:** guava 44.4%, jenkins 35.3%, Rust stdlib 34.3%, rails 34.7%,
+laravel 35.0%, okhttp 31.9%, ktor 30.6%. For comparison, jellyfin is 18.0% and redis 19.8%.
+Bodies too small to keep are 2–6% of bytes. So the instrument is not missing bodies.
+
+These are doc-comment languages: Javadoc, rustdoc, YARD, PHPDoc, KDoc. A doc comment sits outside
+the body by construction, so no grammar can bring it into reach of body elision. **That is a
+finding about the product's unit of elision, not about tree-sitter.**
+
+### C++ clears as registered, and the lower bound says why that is weak
+
+**88.9% of abseil's source files carry an ERROR or MISSING node.** The dominant shapes are
+annotation macros in signatures and MISSING identifiers: `ABSL_ATTRIBUTE_LIFETIME_BOUND` on
+abseil, `NO_THREAD_SAFETY_ANALYSIS` on bitcoin. Boundaries mostly survive that. An independent
+brace lexer, sharing nothing with the grammar, finds 26 of 2,164 abseil regions unbalanced and
+11 of 4,774 on bitcoin. But half of abseil's material sits in bodies that themselves contain an
+error node, and its clean-body ceiling is 26.7%, below the floor.
+
+The first version of this bound tested the whole function rather than the body, and read 10.3%.
+It discarded good bodies because of a macro in the signature that the grammar could not parse.
+
+**The consequence for R4:** any design that validates C++ through the grammar rejects most of
+abseil before a byte is elided. Deep's `check()` would reject about 89% of abseil files as they
+stand.
+
+### Sensitivities, none of which changes a verdict
+
+- **Rust crates.** windows-sys is machine-generated according to its own README, yet none of its
+  249 files carries a marker. It is 18.1 MB, 55% of source bytes, at 0.0%. libc is hand-kept FFI
+  declarations: 4.35 MB at 0.8%. Without both, the crates corpus reads 43.7% and clears. The
+  stdlib reads 29.2% whatever happens to the crates, and the rule needs both corpora.
+- **Rust stdlib.** `#[cfg(test)]` modules are 13.3% of its source bytes. Without them it reads
+  21.95%.
+- **jellyfin.** Its scaffolded EF migration classes read as source. Without them: 53.74% → 52.29%.
+- **abseil.** `*_benchmark.cc` reads as source. Without it: 56.38% → 56.47%.
+
+### Found off the R4 path, and recorded rather than fixed
+
+- **Fast's Python scanner needs `def …:` on one line.** It skips every wrapped signature and every
+  `async def`. On pip 26.2.1, Fast reads 43.23% against Deep's 67.90%; `cli/req_command.py` alone
+  goes 8.4% → 76.4%. This is most of why §81 measured Deep reducing more on Python.
+- **§56's pip figure (46.88%) cannot be reproduced.** pip was upgraded to 26.2.1 on 2026-08-17,
+  two days after §56 measured it.
+- **`@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0 rejects a one-line class body.** It inserts
+  a MISSING `_class_member_semi` into `interface I { fun m(): Int }`, which is valid Kotlin.
+- **Swift was not measured.** `tree-sitter-swift` 0.7.1 ships no `.wasm`, so a grammar would have
+  to be built first.
+
+### Corpora and grammars
+
+The corpora are shallow clones made with `core.autocrlf=false`, so the bytes are upstream's. On
+Windows, `core.longpaths` must also be set: without it, `git status` reports deep paths as
+modified, which is misleading. One Newtonsoft.Json clone came back with an empty object store and
+was re-cloned at the same commit.
+
+The one local corpus is `~/.cargo/registry/src/index.crates.io-*`: 42 crates, 1,504 `.rs`
+files. It is machine-specific in the same way `recipe.json` is. Each report records a hash over
+every file it read.
+
+| corpus | commit |
+|---|---|
+| rust-lang/rust `library/` (sparse) | `52d0fd8771cf` |
+| google/guava (minus `android/`, `guava-gwt/`) | `16fda8017316` |
+| jenkinsci/jenkins | `1a82aaca9953` |
+| JamesNK/Newtonsoft.Json `Src/` | `52fa3aef1f2c` |
+| jellyfin/jellyfin | `208c278b75ab` |
+| redis/redis (`deps/` skipped) | `7a72677e622d` |
+| curl/curl | `8807773c6af3` |
+| abseil/abseil-cpp | `7f008af1930f` |
+| bitcoin/bitcoin `src/` (minus the six subtrees its developer notes list) | `2b95b45a9abd` |
+| rails/rails | `2cc9c08699bc` |
+| rubocop/rubocop | `19c4d91c645c` |
+| laravel/framework | `175092939c40` |
+| WordPress/WordPress (minus eight bundled libraries in `wp-includes/`) | `e0e0928ca70f` |
+| square/okhttp (`.kt` only) | `40a3b8749dea` |
+| ktorio/ktor (`.kt` only) | `d08fd0382b2a` |
+
+Grammars: `tree-sitter-rust` 0.24.0, `-java` 0.23.5, `-c-sharp` 0.23.5, `-c` 0.24.1, `-cpp`
+0.23.4, `-ruby` 0.23.1, `-php` 0.24.2 and `@tree-sitter-grammars/tree-sitter-kotlin` 1.1.0. All
+were installed into scratch with install scripts disabled, not added to the repository.
+
+### What this does not establish
+
+- **No achieved reduction for any candidate.** A ceiling measures material. §56's conversion from
+  ceiling to achieved embeds a fallback rate, and each candidate's own rate needs symbols and a
+  validator first, in §56's order.
+- **Which validator a new language gets is undecided, and that decision decides the outcome.**
+  Deep's `check()` rejects the elision marker (§81). For C++ it also rejects most of abseil before
+  any elision. For C it rejects about a quarter of files: 23.1% of redis, 25.6% of curl.
+- **Whether closures are regions is recorded, not decided.** On source the two readings differ by
+  at most 5.5pp (ktor). On DSL-shaped tests they differ enormously.
+- **Two corpora is §3.7's minimum, and PHP's two disagree by 19 points.** That is the §56 lesson
+  again.
+- **The node tables are the instrument's own claim.** Fixtures, the lexer and spot-checks support
+  them, but a construct no fixture covers could still be missed.
+- **Generated-file detection reads names and headers only.** windows-sys is its blind spot.
