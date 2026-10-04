@@ -7320,6 +7320,19 @@ no file had a function to delete.
     refusal agrees with the gate.
 - **TypeScript, Python and Go keep their regexes in both modes**, so no existing drift score moves.
 
+*Landing note, 2026-10-04: §86 corrects two claims in this list.* **The union is gone.** A
+deep-only item in deep mode now takes the backend's names alone, because the first deep
+measurement showed the regex reading C body code as declarations: `struct curl_slist *list;` inside
+a body yields `type:curl_slist`, and the Python `def` rule reads `#ifndef X_H` as `fn:X_H`. Body
+elision then "lost" symbols it never touched, and 126 of curl's fallback rows named drift. The
+deletion control was re-run under replacement: **1,000 / 1,000** and **2,230 / 2,230** witnessed,
+0 violations, and the fast zero-scores unchanged at 361 and 915. **And one rule does not decide
+both symbols and regions.** C# lambdas and anonymous methods are regions with no name by design,
+3,380 of 19,295 C# regions. A C `function_definition` that error recovery mangles is a region with
+no readable name, 13 of 12,457 C regions. Neither weakens the witness, because drift never sees a
+correct body elision, only a lost header. A file whose regions are all unnamed is refused by the
+measurement gate (§33), which is the honest outcome. Details in §86.
+
 ### Order: a deviation from the skill, and why it is safe
 
 The `widen-language` skill orders a language **symbols → validator → regions**. Here the
@@ -7358,3 +7371,264 @@ region.
 - **Witnessing for anything but function loss.** A body elided correctly keeps its name by
   design, which is §59's "signature-preserving body elision still scores 0.0000". Drift is the
   second layer here; the lexer (§84) and the region tables (§86) are the first.
+
+---
+
+## 86. R4 Step 3: C And C# Reduce Under Deep, At Their Own Fallback Rates
+
+**Status: implemented and measured, 2026-10-04.** This is step 3 of R4's three. In deep mode, C and
+C# take their regions from the Deep backend, through §82's node tables, and
+`compression:token-hashing` elides them. **Fast mode does not reduce C or C#.**
+
+The first measurement found five defects, and each fix was measured as its own arm. The fifth is
+older than R4: TypeScript and Python make the same cut, and have since §50. Fixing it there moves
+default-path output, so it was put to the project owner with its measurement, and it ships with
+this step by explicit decision. **This entry is a default-path change for TypeScript and Python,
+not only a new language.**
+
+### What reaches a region
+
+- **`regionElisionLanguage` returns `c` or `csharp` only in deep mode, and only when a backend
+  resolves** (`deepOnlyBackend`, §85). In Fast mode they get no regions, and they never fall
+  through to the TypeScript brace scanner.
+- **Regions come from `tokendamper-deep`, through §82's tables.** For C, those are
+  `function_definition` bodies. For C#, they are method, constructor, destructor, operator,
+  conversion, local-function and accessor bodies, plus block-bodied lambdas and anonymous methods.
+- **Statement division honours the mode for these two**, so a target can be met inside a body. The
+  splitter is still Fast's `;` splitter, so §81's note stands.
+- **`describeLanguageSupport` takes the mode.** In Fast mode, a C or C# item reports as not
+  reducible, with a reason naming deep mode and `tokendamper-deep`.
+
+### The engine selects exactly what the instrument measured
+
+A ceiling describes the engine only if both pick the same bodies. So core's
+`selectElisionRegions` in deep mode was compared with `ceiling.js`'s regions, file by file:
+
+| | files | identical | regions core selected |
+|---|---|---|---|
+| C (redis + curl) | 1,327 | **1,327** | 10,368, in 993 files |
+| C# (Newtonsoft.Json + jellyfin) | 3,165 | **3,165** | 12,403, in 1,858 files |
+
+On the same trees, `ceiling.js` reproduces §82's source ceilings: redis 65.53% (§82: 65.5%), curl
+57.98% (58.0%), Newtonsoft.Json 51.30% (51.3%) and jellyfin 53.74% (53.7%).
+
+### What the first measurement found
+
+The first arm, A11, reduced every corpus. But drift fallbacks dominated wherever comments did not.
+These counts are rows whose fallback reason names drift at all: curl 126, jellyfin 131,
+Newtonsoft.Json 50 and redis 4. Fixes 1–4 were measured together as A12, and fix 5 as A13.
+
+**1. Drift symbols are the backend's names alone.** §85 unioned them with the shared regex. That
+regex was written for TypeScript, Python and Go, and it reads C body code as declarations. For
+example, `struct curl_slist *list;` inside a body yields `type:curl_slist`, and the Python `def`
+rule reads `#ifndef X_H` as `fn:X_H`. Body elision then "lost" symbols it never touched. The
+deletion control was re-run under replacement:
+
+- **1,000 / 1,000** and **2,230 / 2,230** deletions witnessed, with 0 violations;
+- the fast zero-scores unchanged at 361 and 915.
+
+Replacement also turned one row from a pass into a refusal, and that is the fix working.
+`redismodule.h` reduced 15.1% at A11 with `S_k = 0.0000`, but its 65 symbols were all regex type
+names that body elision cannot destroy. That is §56's hazard exactly. tree-sitter-c's error
+recovery folds the header's ~1,000 lines of `REDISMODULE_API int (*X)(…) REDISMODULE_ATTR;` into
+one `function_definition`, and that node's declarator ends in a parenthesised pointer. So the one
+real body, `RedisModule_Init`'s, is a region with no readable name. Under replacement the file has
+no symbols, and the measurement gate (§33) refuses it.
+
+**2. Markers are stripped before the backend reads symbols.** A marker reads to the C# grammar as an
+attribute (`[target: …]`). With several in a namespaced file, error recovery turned the whole
+namespace into one `ERROR` node, and every method name vanished. That accounted for most of
+jellyfin's drift fallbacks. A region that swallowed a header still loses that name, because the
+header text is gone either way.
+
+**3. A C or C# body holding a preprocessor line is not divided.** The splitter knows nothing of
+directives, so it cut groups apart. Usually the lexer refused the result, and the stage skipped the
+whole file. **All 36 such rows**, across the four corpora, were confirmed by re-running the A11
+build: `skippedPostConditionRejected: 1`, nothing elided. On Newtonsoft.Json the splitter also
+elided an `#if` with the statements after it, and glued the `#endif` to the marker mid-line, where
+no lexer reads a directive. Only drift caught that one. Now the whole body stays the unit. Its
+interior holds complete groups, so removing it keeps directives balanced.
+
+**4. A C or C# item in deep mode is never elided whole.** This is §43's reasoning. Its symbols are
+function names alone, so a header of prototypes is symbol-free. Whole-item elision of symbol-free
+code can only end in the measurement gate's refusal. Attempting it manufactured a fallback and
+emitted the input anyway. That happened on two X11 keysym headers in the main corpus and on §85's
+five symbol-free rows.
+
+**5. A compound statement is one span.** After A12, seven C# rows still named drift. The six where
+drift was the only cause were read, and all six were the same cut. The splitter ended a span at any
+`}` returning depth to 0. So these pairs were each two spans:
+
+- `if {…}` and `else {…}`;
+- `try {…}` and `catch {…}`;
+- `do {…}` and `while (…);`.
+
+Eliding the first part left the `else` or `while` attached to a marker. Brackets still balance, so
+no lexer objects. But tree-sitter-c-sharp then loses the enclosing class, and every method in it
+reads as gone. In jellyfin's `WebSocketConnection.cs`, all ten method names were still in the text,
+and the file scored `S_k = 1.00`.
+
+A span no longer ends where the next token is `else`, `catch` or `finally`, or `while` after a `do`
+block. A braceless `if (x) a(); else b();` stays whole too. A braceless `do x(); while (y);` is not
+handled.
+
+### The same cut, on the default path
+
+The cut is the TypeScript splitter's, and Python's splitter makes the equivalent one: `else:`,
+`elif`, `except` and `finally:` at base indentation each started a new span. Neither language has a
+grammar re-reading its output, so nothing noticed from §50 until now. Counted statically, over
+every usable span:
+
+| corpus | spans that orphan a clause, before | after |
+|---|---|---|
+| TypeScript, main corpus | 14 / 474 (2.95%), in 7 files | 0 |
+| Python, main corpus (pip) | 40 / 221 (18.10%), in 14 files | 0 |
+| Python, CPython `asyncio` | 69 / 213 (32.39%), in 13 files | 0 |
+| Python, `anyio` | 22 / 106 (20.75%), in 8 files | 0 |
+| C, redis + curl | 1,451 / 8,552 (16.97%), in 210 files | 0 |
+| C#, Newtonsoft.Json + jellyfin | 821 / 11,049 (7.43%), in 297 files | 0 |
+
+Python gets the same rule: a base-indent `else`, `elif`, `except` or `finally` continues the
+statement above it. Go needs nothing, because semicolon insertion forbids a newline before `else`.
+
+**On the default path it meets the zero-new-fallbacks bar** that §83 set aside for itself and
+restored for the next change. Fast mode, ratio 0.3, A13 → A14:
+
+| bucket | saved | fallbacks | rows moved | mean \|achieved − 0.3\| | rows > 50% |
+|---|---|---|---|---|---|
+| Python file (pip) | 19.53% → **20.04%** | 10 → 10 | 10 | 8.83 → 9.99pp | 4 → 5 |
+| Python stdin (pip) | 19.16% → **19.68%** | 9 → 9 | 10 | 8.62 → 9.86pp | 4 → 5 |
+| TypeScript file | 20.80% → **20.86%** | 16 → 16 | 9 | 13.26 → 13.37pp | 8 → 10 |
+| `asyncio` file | 7.27% → 7.18% | 13 → 13 | 8 | 8.91 → 7.68pp | 1 → 1 |
+| `anyio` file | 17.29% → 17.26% | 6 → 6 | 9 | 9.96 → 9.42pp | 1 → 1 |
+
+The cost is adherence on the main corpus. A whole compound statement is a coarser unit, so of the
+moved TypeScript rows, 7 of 9 landed further from the target. On the async corpora adherence
+improved. The undeclared TypeScript stdin bucket stays at 0.00%.
+
+In deep mode, one row is newly refused: `asyncio/sslproto.py`, on the file route. **It is not the
+splitter's.** `PythonValidator` flags line 547 of the *unmodified* file, and validation does not
+subtract issues the input already had (§84). At A13 the elision happened to remove that line, and
+at A14 a different span selection keeps it. See "Found off the path" below.
+
+### Measured: four corpora, deep mode, ratio 0.3, file route
+
+The final arm. Each corpus has its own fallback rate, and source and test are reported separately
+(§3.7):
+
+| corpus | class | files | reduced | fell back | saved | 25–35% | > 50% |
+|---|---|---|---|---|---|---|---|
+| redis | source | 201 | 75 | 69 (34.3%) | **6.76%** | 31 | 8 |
+| redis | test | 49 | 46 | 3 (6.1%) | **32.04%** | 30 | 5 |
+| curl | source | 620 | 178 | 191 (30.8%) | **9.59%** | 72 | 17 |
+| curl | test | 411 | 331 | 73 (17.8%) | **35.76%** | 72 | 121 |
+| Newtonsoft.Json | source | 236 | 147 | 13 (5.5%) | **20.12%** | 55 | 15 |
+| Newtonsoft.Json | test | 703 | 387 | 4 (0.6%) | **26.69%** | 150 | 27 |
+| jellyfin | source | 1,173 | 790 | 73 (6.2%) | **21.46%** | 252 | 96 |
+| jellyfin | test | 257 | 221 | 30 (11.7%) | **25.05%** | 99 | 28 |
+
+The 25–35% and > 50% columns count reducing rows. Saved is over every row, with a fallback counted
+as zero. 0 runs failed.
+
+How each fix moved the saving, A11 → A12 → A13:
+
+| corpus | class | saved | fell back |
+|---|---|---|---|
+| redis | source | 4.61% → 6.29% → 6.76% | 70 → 71 → 69 |
+| redis | test | 30.77% → 30.77% → 32.04% | 4 → 4 → 3 |
+| curl | source | 7.92% → 10.03% → 9.59% | 169 → 189 → 191 |
+| curl | test | 22.62% → 35.94% → 35.76% | 159 → 73 → 73 |
+| Newtonsoft.Json | source | 11.97% → 19.19% → 20.12% | 33 → 16 → 13 |
+| Newtonsoft.Json | test | 17.84% → 26.70% → 26.69% | 32 → 4 → 4 |
+| jellyfin | source | 17.53% → 20.64% → 21.46% | 112 → 77 → 73 |
+| jellyfin | test | 14.19% → 25.10% → 25.05% | 94 → 30 → 30 |
+
+Rows naming drift went 311 → 7 → **0**.
+
+**curl's source fallbacks rose at A12, and the extra rows lost nothing.** Of its 30 new
+fallbacks, 27 had emitted their input unchanged at A11. That was fix 3's post-condition skip, now
+a constraint refusal instead. The output is the input both ways. A13's fix 5 changed fallbacks by
+6 new against 14 recovered. Every new one is `CONSTRAINT_DIRECTIVE_LOST`, from a larger span now
+holding a directive comment.
+
+### The fallbacks are the constraint gate's, reading comment prose
+
+At A13 every fallback but one is `CONSTRAINT_DIRECTIVE_LOST`. The exception is `redismodule.h`'s
+measurement-gate refusal. Every refusal was read for the first directive it names:
+
+| | rows | block comment | line comment | other prose | on a directive line |
+|---|---|---|---|---|---|
+| C | 335 | 312 | 2 | 20 | 1 |
+| C# | 120 | 0 | 118 | 0 | 2 |
+
+The keywords are `always` (C 112, C# 10), `must` (90, 57), `do not` (76, 10), `required` (27, 19)
+and `never` (11, 11). Each of the three rows on a directive line is a trailing comment, such as
+`#ifdef USE_XATTR /* Required for … */` and `#pragma warning disable RS0030 // Do not use …`. None
+is a directive read as prose. This is §52's open axis again. **C's source fallback rate, 31–34%,
+is this gate on narrative block comments,** and the spec's §8 risk, `#if`-heavy bodies, did not
+materialise.
+
+### What the post-condition caught
+
+`elideRegions` refuses any output that raises the item's lexer issue count, and then the stage
+leaves the whole file alone. A lexer objection therefore shows as an unchanged row, not a
+fallback. Phase 1c hides it the same way, by reverting the item. So "no lexer fallbacks" would be
+a vacuous check. Instead, every row that neither changed nor fell back, while core selects regions
+for it, was re-run and its skip reason read. There are 6 of 3,650:
+
+- **3 are region boundaries that grammar error recovery misplaced around directives.**
+  - curl's `lib/vtls/openssl.c`: two alternative `(reason == …)) {` lines under
+    `#ifndef`/`#else` made tree-sitter-c invent a body whose interior holds that group's `#else`
+    and `#endif`.
+  - Newtonsoft.Json's `DictionaryWrapper.cs`: an `#if` wrapping an `else if` clause ended an
+    accessor's block before the `else` block's `}`.
+  - `JsonWriter.Async.cs`: an `#if` splitting a `switch`'s case labels ended a method's block
+    before the `while` loop's `}`.
+- **3 are the splitter lexing C# strings with TypeScript's rules,** in three Newtonsoft.Json test
+  files. One is `JsonTextWriterAsyncTests.cs:188`, a verbatim string holding `\""`: TypeScript
+  reads `\"` as an escape, and C# does not.
+
+All six are fail-safe, at a cost of one file's reduction each. They are recorded rather than fixed.
+
+### The main-corpus control
+
+The main corpus is frozen at `80880bd`: 301 files, 602 rows.
+
+- **Fast, before fix 5's extension:** identical to A9, the build before R4's regions, on all 602
+  rows and all 33 fields.
+- **Fast, final:** 44 rows differ, all TypeScript or Python, and `fallbackUsed` is identical on
+  all 602. 29 of those rows move `outputSha`. The other 15 fall back in both arms, and move only
+  `debtScore`, `driftScore` or the reason's text.
+- **Deep, final:** 31 rows move `outputSha`, and all are Python (22) or TypeScript (9). Every other
+  row's output is identical to A9's, and fallbacks stay at 204. 30 `c`-bucket rows differ only in
+  trace fields: `symbolsBefore` falls to the backend's count, which is 0 for prototype-only
+  headers. Two X11 keysym headers stop falling back (fix 4). Two FLAC++ headers with inline bodies
+  now elide, and the constraint gate refuses them. Their output is the input either way.
+- The final build reproduces the measured TypeScript/Python variant on all 602 rows and all 33
+  fields, in both modes. It also splits every file of all six corpora exactly as the arm that
+  measured it did.
+
+### Found off the path
+
+**`PythonValidator` flags a backslash line continuation as an unexpected indent.** That covers 5
+lines in 4 of `asyncio`'s 30 files, such as `self._handshake_timeout_handle = \` followed by its
+continuation. pip and anyio, which are black-formatted, have none. Validation does not subtract
+pre-existing issues, so such a file reduces only when elision happens to remove the flagged line.
+That is the `sslproto.py` row above. It is a default-path false positive older than R4, and it is
+not fixed here.
+
+### What this does **not** establish
+
+- **stdin for C or C#.** `measure.js` passes no `--language`, and a pathless item has no
+  language, so none of the 3,650 rows reaches it.
+- **Any ratio but 0.3.**
+- **Retention.** Drift witnesses a lost declaration, never a correct body elision (§59, §85).
+- **Syntax.** C and C# output is checked for balance only, and Deep cannot validate its own output
+  (§81).
+- **C++ in `.h` files**, beyond what these corpora held.
+- **Provenance as strong as a `collect.js` pin.** The four trees are checkouts read in place,
+  pinned by commit and by a hash over every file read.
+- **Adherence for one-body files.** Of curl tests' 121 rows above 50%, the directive guard (fix 3)
+  accounts for 37. A further 72 are bodies that do not divide under §50's rules, and 12 divided but
+  are dominated by one region.
+- **The braceless `do x(); while (y);`**, and the six post-condition skips above.

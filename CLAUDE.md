@@ -245,7 +245,11 @@ DECISIONS §75, scheduled in `ROADMAP.md`.** Four releases, named rather than nu
     might make Deep unusable at the CLI. `topology-pruner` is 98% of cold engine time.
 - **R4 / v2.0.0 — `tokendamper-deep` ships**, N languages reduce, and `--mode` is withdrawn
   (`optimize|bench` today, where `optimize` is the identity and `bench` duplicates the positional
-  command) so the name can mean `fast|deep`. **NEXT, and not started.** **Start at
+  command) so the name can mean `fast|deep`. **In progress — Part A has landed on `r4/languages`:**
+  C and C# reduce under deep mode (§84–§86), and §86 also keeps a compound statement whole in
+  TypeScript and Python, which moves default-path output on 29 main-corpus rows with 0 new
+  fallbacks. Part B (`--mode fast|deep`, publishing `tokendamper-deep`) and the release remain, per
+  `docs/superpowers/plans/2026-10-04-r4-c-csharp-and-v2-release.md`. **Start at
   `docs/r4-start-here.md`**, which carries the state R4 begins from, the three things that do *not*
   survive a session (the frozen corpus, the timing baseline, the Go corpora), and the two R3
   findings that constrain it — deep validation cannot be combined with elision, and **a grammar is
