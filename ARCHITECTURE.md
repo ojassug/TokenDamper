@@ -546,7 +546,9 @@ docs/
   qualification arrived with the `ParserAdapter` seam and is not a weakening. Fast and Deep
   producing different output for the same file is the feature Deep exists for — what would be a
   violation is either mode being non-deterministic *within itself*. Every statement of
-  "deterministic" elsewhere in this document is read under this qualification.
+  "deterministic" elsewhere in this document is read under this qualification. C and C# reach
+  elision only through a Deep backend: the Fast path validates them and measures their drift, but
+  has no region scanner for either (DECISIONS §84–§86).
 - `ContextBundle` is the core normalized content model
 - `OptimizationBudget` is the core constraint model
 - the planner is stateless

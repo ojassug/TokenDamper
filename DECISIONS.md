@@ -7632,3 +7632,109 @@ not fixed here.
   accounts for 37. A further 72 are bodies that do not divide under §50's rules, and 12 divided but
   are dominated by one region.
 - **The braceless `do x(); while (y);`**, and the six post-condition skips above.
+
+---
+
+## 87. The 2.0 Surface: `--mode` Is The Engine, And The Package Is Public
+
+**Status: implemented, 2026-10-04.** This is Part B of R4 and v2.0.0, the spec's §4.5 and §4.6.
+It changes the CLI and configuration surface and makes `tokendamper-deep` publishable. **No engine
+behaviour moves.** The frozen main corpus, run through the harness's new `--mode`, reproduces Part
+A's final arm on all 301 file-route rows in both modes, and every deep row's trace reports
+`parserMode: deep`.
+
+### `--mode` is the engine, and nothing is aliased
+
+`--mode` took `optimize|bench`. `optimize` was the identity, and `bench` rewrote the command into
+the positional `tokendamper bench`. The engine had `--engine-mode`, added in v1.8.0. 2.0.0 gives
+the short name to the engine: `optimize --mode fast|deep`, with `fast` the default.
+
+- **`--mode optimize|bench` is a parse error naming `tokendamper <value>`.** It is not quietly
+  reinterpreted, because a script passing `--mode bench` would otherwise start optimizing and
+  print a report-shaped result that is not the benchmark.
+- **`--engine-mode` is a parse error naming `--mode fast|deep`, not an alias.** It shipped in one
+  release and only on `optimize`, and deep mode could not run from the npm package at all, because
+  `tokendamper-deep` was unpublished. So the scripts it could break are few. An alias would keep
+  two spellings of one setting forever, in a release that is the last.
+- **`--mode` is `optimize`-only.** `bench`'s runner reads no engine mode, and the MCP server
+  registers no backends. Accepting `--mode deep` on either would report a deep run that never
+  happened, which is invariant 10. Both refuse it the way every misplaced flag is refused (§30),
+  naming the command it applies to.
+
+### The engine is a setting like every other
+
+`engine.mode` in `tokendamper.config.json` and `TOKENDAMPER_ENGINE_MODE` take `fast|deep`. An
+unrecognised value is an error from either door, by v1.6.0's rule for the `TOKENDAMPER_*` enums.
+`--mode` reaches the engine through `configOverrides`, so the loader's one precedence rule
+applies: flag, then environment, then file, then default. `runCli` resolves the configuration once
+for `optimize`, `bench` and `mcp`, writes any notices, and dispatches with the resolved engine.
+Each command branch still loads its own copy for everything else.
+
+**A resolved `deep` on `bench` or `mcp` is refused, naming the per-command override.** The
+message names `TOKENDAMPER_ENGINE_MODE=fast`, which outranks a file. It is a refusal rather than a
+silent fast run for the same reason the flag is refused. Two consumers of the configuration are
+deliberately not refused:
+
+- **The Gateway** (`exec`) loads the file but plans only `cleanup:session-dedup` (invariant 8).
+  That stage discovers no regions, so there is no engine to choose.
+- **`startMcpServer` called as a library** is left alone. The CLI is the surface that refuses; a
+  library caller passes its own configuration and owns that choice.
+
+### `app.mode` is withdrawn with a notice, and so are the variables withdrawn before it
+
+`app.mode` and `TOKENDAMPER_APP_MODE` now load with any value and print one line on stderr naming
+the replacement. Nothing ever read `appMode`. Its only live effect was the parser's rewrite of
+`--mode bench`, and that belonged to the flag. A notice rather than an error, because withdrawing
+a key must not turn a configuration that worked yesterday into a failed startup. `traceOutput` set
+that precedent in §62. `ResolvedConfig.appMode` stays on the frozen model, set only by the default.
+
+**Writing this found the earlier withdrawals were silent, though documented otherwise.** The README
+said `TOKENDAMPER_RISK_TOLERANCE`, `_MAX_OUTPUT_TOKENS`, `_MAX_LATENCY_MS` (v1.2.0) and
+`_TRACE_OUTPUT` (v1.6.1) were "rejected rather than ignored". Only their flags were. Measured, each
+variable loaded with no effect and no word. They now get the same notice, naming the version that
+withdrew them. That is invariant 10 aimed at documentation: the check the README described never
+ran.
+
+### `tokendamper-deep` is public, in lockstep, with core as an optional peer
+
+- **The version moves with core.** It is 1.8.0 now, and the release takes both to 2.0.0, so
+  `tokendamper-deep@X` is always the backend `tokendamper@X` was measured with.
+  `published-package-scope.test.ts` pins it.
+- **`files` is `dist`, `README.md` and `LICENSE`.** The licence is a byte copy of the root's.
+- **`tokendamper` is an optional peer.** npm 7+ installs a required peer. In this workspace, whose
+  root *is* `tokendamper`, that means a second copy of core fetched from the registry. At a release
+  it means a failed install, because the lockfile is written before core is published and the
+  range names a version that does not exist yet. Optional states the pairing without installing
+  anything.
+- **Core keeps zero runtime dependencies.** The grammars and `web-tree-sitter` are the deep
+  package's.
+- **The discovery error names the install,** `npm install tokendamper-deep`, global if
+  `tokendamper` is, and still the build command for a checkout.
+
+The dry-run tarballs:
+
+| package | entries | packed | unpacked |
+|---|---|---|---|
+| `tokendamper` 1.8.0, published | 238 | — | 2.02 MB |
+| `tokendamper`, this branch | 247 | 663 KB | 2.20 MB |
+| `tokendamper-deep`, this branch | 15 | 19.9 KB | 64.0 KB |
+
+The nine new core entries are the two lexers and `deep-only`, three files each (`.js`, `.d.ts`,
+`.map`). No core entry comes from `packages/`. The name `tokendamper-deep` is unclaimed on the
+registry.
+
+### The harness
+
+`measure.js` takes `--mode` and passes `--mode`. A leftover `--engine-mode` is refused. Its option
+parser would otherwise drop it and measure fast under a label that said deep.
+
+### What this does **not** establish
+
+- **An install from the registry.** Nothing can be installed until it is published. The dry runs
+  show what ships, not that it installs.
+- **An install on a platform without prebuilt grammar bindings.** Each grammar package runs
+  `node-gyp-build` at install. It finds a shipped binary on darwin, linux and win32, on x64 or
+  arm64, so no compiler is needed there. Elsewhere npm 10, which Node 20 and 22 bundle, would try
+  to compile native bindings `tokendamper-deep` never loads, because it reads the `.wasm` files.
+  npm 11 skips unapproved install scripts. Neither path is tested here.
+- **Deep through `bench` or MCP.** It is refused, not implemented. §88 closes it as not done.
