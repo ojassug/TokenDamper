@@ -544,6 +544,16 @@ Go, measured separately when it was added (v1.6.1):
 | `_test.go` files specifically | **26.88%** (against 14.42% for source) |
 | this repo's TypeScript, same run | 21.22% |
 
+C and C#, under `--engine-mode deep` only, at target 0.3. Each corpus has its own fallback rate,
+and C's is high because its narrative block comments trip the constraint gate:
+
+| corpus | source: saved (fell back) | tests: saved (fell back) |
+|---|---|---|
+| redis (C) | **6.76%** (34.3%) | **32.04%** (6.1%) |
+| curl (C) | **9.59%** (30.8%) | **35.76%** (17.8%) |
+| Newtonsoft.Json (C#) | **20.12%** (5.5%) | **26.69%** (0.6%) |
+| jellyfin (C#) | **21.46%** (6.2%) | **25.05%** (11.7%) |
+
 The single-file figures in [the 60-second version](#the-60-second-version) are much higher —
 67.8% — because that file is dense with elidable bodies and light on the narrative comments that
 trip the constraint gate. **Both are real; neither is "the" number.** Which one you get depends on
@@ -587,6 +597,8 @@ AST** — the one exception is JSON.
 | **TypeScript / JavaScript** | Bracket, quote and comment balance, by a lexer that tracks strings, template interpolation and regex literals | Everything else. `const x = ;`, `import from "x";`, `let 123abc = 5;` and plain English prose all **pass** |
 | **Python** | The above, plus missing colons, malformed `def`, bad dedent and stray leading indentation | Plain English prose still passes |
 | **Go** | The above, by a lexer that knows raw strings (no escapes, spans lines), rune literals, and that Go has no regex literals | Everything else. Over 9,181 real Go files it flags **1** — the Go compiler's own deliberately-malformed testdata. The TypeScript lexer flags **73** of the same files, and the disagreements are raw strings: Go's backtick string spans lines, has no escapes, and is full of quotes and braces |
+| **C** (`.c`, `.h`) | Bracket, quote and comment balance, plus `#if`/`#endif` balance. Code counts if it balances in either of two consistent build configurations, and include guards always count | Everything else, including damage confined to a branch one configuration drops. Over 7,914 real files it flags 4: two true positives, and two false positives kept by design |
+| **C#** (`.cs`) | Bracket, quote and comment balance, knowing verbatim, raw and interpolated strings, plus `#if` and `#region` balance | Everything else. Over 6,230 real files it flags **0** |
 | **JSON** | Fully parsed — this one is a real check | — |
 | **Everything else** | Nothing. No validator covers it | Reported on `trace.astCoverage`; never silently counted as a pass |
 
@@ -631,9 +643,10 @@ rows overshooting past 50% from **34 → 18** over 576 corpus rows, with zero ne
 files that stopped reducing. It is better, not exact. `test/unit/target-reduction-ratio.test.ts`
 pins this as a documented limit and deliberately does **not** assert `achieved <= target`.
 
-### Elision only reaches four languages
+### Elision only reaches six languages, and two of them only in deep mode
 
-Sub-item region elision exists for **TypeScript, JavaScript, Python and Go** — four of the
+Sub-item region elision exists for **TypeScript, JavaScript, Python and Go** in every mode, and for
+**C and C#** under `--engine-mode deep` with `tokendamper-deep` installed. That is six of the
 seventeen languages measured for it. For everything else every elision route terminates in a
 refusal, and no flag combination changes that —
 `--max-drift 0.99` does not move it, because the gates are not all threshold-controlled.

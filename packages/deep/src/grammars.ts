@@ -1,18 +1,20 @@
 /**
  * Which grammar answers for which language, and where its WASM lives.
  *
- * The four here are exactly the four the shipped Fast path already identifies. R3 adds **no
- * new language** — its deliverable is that a second backend reproduces the first on ground
- * where the answer can still be hand-checked. A fifth entry belongs to R4 and needs §3.7's
- * two-corpus ceiling measurement before it is written.
+ * The first four are the four the shipped Fast path identifies (R3, whose deliverable was that
+ * a second backend reproduces the first where the answer can still be hand-checked). C and C#
+ * are R4's: §82 measured both above the 40% floor on two corpora each, and they are
+ * **deep-only** — core names them through its Fast lexers but has no region scanner for either.
  */
-export type DeepLanguage = 'typescript' | 'javascript' | 'python' | 'go';
+export type DeepLanguage = 'typescript' | 'javascript' | 'python' | 'go' | 'c' | 'csharp';
 
 export const DEEP_LANGUAGES: ReadonlyArray<DeepLanguage> = Object.freeze([
   'typescript',
   'javascript',
   'python',
   'go',
+  'c',
+  'csharp',
 ]);
 
 /**
@@ -28,6 +30,8 @@ const WASM_SPECIFIERS: Readonly<Record<DeepLanguage, string>> = Object.freeze({
   javascript: 'tree-sitter-javascript/tree-sitter-javascript.wasm',
   python: 'tree-sitter-python/tree-sitter-python.wasm',
   go: 'tree-sitter-go/tree-sitter-go.wasm',
+  c: 'tree-sitter-c/tree-sitter-c.wasm',
+  csharp: 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
 });
 
 export function grammarWasmPath(language: DeepLanguage): string {

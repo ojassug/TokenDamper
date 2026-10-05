@@ -37,6 +37,86 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fail-open, so what is lost is saving, not content. §83 left the call to ship time, and it
   ships: 2.0.0 takes the trade, by explicit decision.
 
+- **C and C# are validated (DECISIONS §84).** `.c`, `.h` and `.cs` files, and anything declared
+  `--language c`, `csharp`, `cs` or `c#`, are now checked by new bracket, quote and comment lexers
+  instead of going unvalidated. `csharp` is a new declarable language, and `.cs` is walked in
+  directories.
+
+  **This reaches Fast mode.** A file the lexer flags now falls back, and in a multi-file bundle the
+  whole bundle does. So the lexers were gated on a census registered in advance:
+
+  | | files | false positives | brace deletions caught (code sites) |
+  |---|---|---|---|
+  | C | 7,914 | 2 (0.025%) | 3,485 / 3,485 |
+  | C# | 6,230 | 0 | 6,163 / 6,163 |
+
+  The two C false positives are rejected by design: libstdc++'s correlated `tr1` groups, and
+  `sti.h`'s broken block under a macro nothing defines.
+
+  What the census changed in the lexers:
+  - **C accepts code that balances in either of two consistent build configurations**: the first
+    branch of every `#if`, or the `#else` of every group that has one.
+  - **Include guards always count.**
+  - **Some conditions are decided outright:** `#if 0`, every test of `__cplusplus`, and a macro
+    defined only in dead code.
+  - **A UTF-8 byte-order mark is whitespace.** It had flagged 549 Newtonsoft.Json files.
+
+  On the main corpus, output and `fallbackUsed` are identical on all 602 rows, and the 30 C headers
+  now report as checked. Damage confined to a branch one configuration drops is not caught, and
+  §84 counts those sites.
+
+- **In deep mode, C and C# function symbols come from the Deep backend (DECISIONS §85).** Before
+  this, a C file's only drift symbols were incidental `struct`/`enum` names, which survive body
+  elision. A deletion control removed every function from each file, and the result:
+
+  | | redis + curl (C) | Newtonsoft.Json + jellyfin (C#) |
+  |---|---|---|
+  | files with functions | 1,000 | 2,230 |
+  | deletions witnessed in deep mode | **1,000** | **2,230** |
+  | deletions the fast tracker scored 0 | 361 | 915 |
+
+  TypeScript, Python and Go keep their regex symbols in both modes. Output does not move; deep-mode
+  traces for C and C# gain `symbolsBefore` and `parserBackendAnswered`.
+
+- **C and C# reduce under deep mode (DECISIONS §86).** With `tokendamper-deep` installed and
+  `--engine-mode deep`, function bodies in `.c`, `.h` and `.cs` files are elided. They come from
+  the same tree-sitter node tables the ceiling instrument measured, and the engine selects
+  exactly what that instrument does on all 4,492 files compared. Fast mode does not reduce C or
+  C#. At ratio 0.3 on the file route:
+
+  | corpus | source: saved (fell back) | tests: saved (fell back) |
+  |---|---|---|
+  | redis (C) | 6.76% (34.3%) | 32.04% (6.1%) |
+  | curl (C) | 9.59% (30.8%) | 35.76% (17.8%) |
+  | Newtonsoft.Json (C#) | 20.12% (5.5%) | 26.69% (0.6%) |
+  | jellyfin (C#) | 21.46% (6.2%) | 25.05% (11.7%) |
+
+  Every fallback but one is the constraint gate reading narrative comments (`always`, `must`,
+  `do not`), and C's block comments are why its source rate is 31–34%. The first measurement also
+  found four defects, all fixed:
+  - in deep mode, a C or C# item's drift symbols now come from the backend alone, because the
+    shared regex read C body code as declarations (`struct x *p;` as a type);
+  - markers are stripped before the backend reads symbols;
+  - a body holding a preprocessor line is not divided into statements;
+  - a C or C# item is never elided whole.
+
+  Rows falling back on drift went 311 → 0. In deep mode, C and C# traces now report the backend's
+  function names as `symbolsBefore`, without the regex's.
+
+- **A compound statement is one span (DECISIONS §86).** Statement division ended a span at any `}`
+  returning to depth 0, and in Python at any line at the body's base indentation. So eliding an
+  `if` block could leave its `else` attached to the marker, and the same held for a `try`'s
+  `catch` or `finally`, a `do`'s `while`, and Python's `elif`, `except` and `finally`. A span now
+  runs to the end of the whole statement.
+
+  **This moves default-path output for TypeScript and Python.** On the frozen main corpus at ratio
+  0.3, 29 rows change and none newly falls back:
+  - Python file 19.53% → 20.04%;
+  - TypeScript file 20.80% → 20.86%.
+
+  Coarser units cost some adherence: TypeScript rows above 50% went 8 → 10. On CPython's
+  `asyncio` and on `anyio`, fallbacks are unchanged and adherence improves.
+
 ### Fixed
 - **The Gateway timeout file's other two header budgets also sat inside their own first byte's
   range.** The slow-body case's flake, fixed in v1.8.0, had siblings in the same file. All

@@ -207,3 +207,27 @@ describe('the content-type dispatch table is total', () => {
     expect(selectValidator(item)).toBeNull();
   });
 });
+
+describe('C and C# are validated, not skipped (R4, spec §4.1)', () => {
+  const item = (content: string, extra: { path?: string; language?: string }) =>
+    createContextItem({ id: 'x', kind: 'file', content, contentType: 'code', ...extra });
+
+  it.each([
+    [{ path: 'src/a.c' }, 'c'],
+    [{ path: 'include/a.h' }, 'c'],
+    [{ language: 'c' }, 'c'],
+    [{ path: 'src/A.cs' }, 'csharp'],
+    [{ language: 'csharp' }, 'csharp'],
+    [{ language: 'cs' }, 'csharp'],
+  ] as const)('%j selects the %s validator', (extra, language) => {
+    expect(selectValidator(item('int x;', extra))?.language).toBe(language);
+  });
+
+  it('reports validated: true for a .c file, which it never did before R4', () => {
+    expect(validateItemAst(item('int x;\n', { path: 'a.c' })).validated).toBe(true);
+  });
+
+  it('leaves C++ unvalidated, as before', () => {
+    expect(selectValidator(item('int x;', { path: 'a.cpp' }))).toBeNull();
+  });
+});

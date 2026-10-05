@@ -1,6 +1,8 @@
 import type { ContentType, ContextBundle, ContextItem } from '../../model/types';
 import { resolveParserBackend } from '../../parser/registry';
 import { DEFAULT_ENGINE_MODE, type EngineMode, type ParserAdapter } from '../../parser/types';
+import { CValidator } from './c-validator';
+import { CSharpValidator } from './csharp-validator';
 import { GoValidator } from './go-validator';
 import { JsonValidator } from './json-validator';
 import { PythonValidator } from './python-validator';
@@ -17,6 +19,8 @@ export * from './ts-validator';
 export * from './json-validator';
 export * from './python-validator';
 export * from './go-validator';
+export * from './c-validator';
+export * from './csharp-validator';
 
 export interface BundleAstValidationResult {
   readonly valid: boolean;
@@ -34,6 +38,8 @@ const tsValidator = new TypeScriptValidator();
 const jsonValidator = new JsonValidator();
 const pythonValidator = new PythonValidator();
 const goValidator = new GoValidator();
+const cValidator = new CValidator();
+const csharpValidator = new CSharpValidator();
 
 /**
  * The complete map from `ContentType` to the validator that governs it.
@@ -79,6 +85,9 @@ const CONTENT_TYPE_VALIDATORS: Readonly<Record<ContentType, AstValidator | null>
   // through the same two branches, by its own grammar rather than by being lexed as
   // TypeScript — which is the distinction this `null` exists to preserve, not one it
   // contradicts.
+  //
+  // **C and C# joined in R4 (§84) the same way**, by declared language and by path, through
+  // their own lexers — `code` still selects nothing.
   code: null,
   text: null,
   markdown: null,
@@ -168,6 +177,14 @@ function selectFastValidator(item: ContextItem): AstValidator | null {
     if (['go', 'golang'].includes(lang)) {
       return goValidator;
     }
+    // C and C# (R4, spec §4.1). `h` is accepted for the parity reason `LANGUAGE_ALIASES` records:
+    // an undeclared item can carry the raw extension spelling.
+    if (lang === 'c' || lang === 'h') {
+      return cValidator;
+    }
+    if (['csharp', 'cs', 'c#'].includes(lang)) {
+      return csharpValidator;
+    }
   }
 
   if (item.path) {
@@ -183,6 +200,12 @@ function selectFastValidator(item: ContextItem): AstValidator | null {
     }
     if (ext === 'go') {
       return goValidator;
+    }
+    if (ext === 'c' || ext === 'h') {
+      return cValidator;
+    }
+    if (ext === 'cs') {
+      return csharpValidator;
     }
   }
 

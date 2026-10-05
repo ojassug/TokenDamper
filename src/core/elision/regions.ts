@@ -1,4 +1,5 @@
 import type { ContextItem } from '../model/types';
+import { isDeepOnlyLanguage } from '../parser/deep-only';
 import { resolveParserBackend } from '../parser/registry';
 import { DEFAULT_ENGINE_MODE, type EngineMode } from '../parser/types';
 import { selectValidator } from '../validation/ast';
@@ -547,6 +548,9 @@ function dropOverlapping(regions: ReadonlyArray<ElisionRegion>): ElisionRegion[]
  * Any other high-information symbol-free content — a SQL literal, a config block, a worked
  * example — is still invisible to the drift metric. The real fix is making `R_struct` do
  * work for code; this is the guard that makes shipping possible before that lands.
+ *
+ * C and C# use the TypeScript stripper: `//` and `/* *\/` are their comment forms too, and §82's
+ * ceiling instrument made the same choice (`stripAs: 'typescript'`).
  */
 export function isSubstantiveRegion(text: string, language: RegionElisionLanguage): boolean {
   const stripped =
@@ -641,19 +645,28 @@ export function splitRegionIntoStatements(
   region: ElisionRegion,
   options?: SelectRegionsOptions,
 ): ReadonlyArray<ElisionRegion> {
-  // `regionElisionLanguage(item)` with no mode, deliberately — but note the trap in the
-  // signature: this takes the same `SelectRegionsOptions` as `selectElisionRegions`, which
-  // carries `mode`, and **this function ignores it**. Subdivision on the ceiling path is
-  // Fast-driven even under `--engine-mode deep`, which DECISIONS §81 records as a limitation of
-  // that release. The type says a caller may pass a mode; only `minRegionBytes` is read. If you
-  // wire subdivision to the backend, change this line and §81's "does not establish" together.
-  const language = regionElisionLanguage(item);
+  // The mode is honoured **for the gate only**, so that C and C# — deep-only, and so invisible to
+  // a mode-less gate — can be divided under a ceiling (R4, spec §4.4). For TypeScript, Python and
+  // Go the resolved language name is the same in both modes, so their splitter and their output
+  // do not move. The *splitter* is still Fast's in every mode, which is §81's note and stays true:
+  // subdivision is not wired to the backend.
+  const language = regionElisionLanguage(item, options?.mode);
   if (language === undefined) {
     return [];
   }
 
   const minBytes = options?.minRegionBytes ?? MIN_REGION_BYTES;
   const text = item.content.slice(region.start, region.end);
+  // A C or C# body holding a preprocessor line is not divided (DECISIONS §86). The splitter knows
+  // nothing of directives, and measured on Newtonsoft.Json it elided an `#if` with the statements
+  // after it and left the `#endif` glued to the marker — mid-line, where neither lexer reads a
+  // directive, so the broken group passed the post-condition check and only drift caught it. The
+  // whole body stays the unit: its interior holds complete groups, so removing it is balanced.
+  if (isDeepOnlyLanguage(language) && /^[ \t]*#/m.test(text)) {
+    return [];
+  }
+  // C and C# end statements with `;` and open blocks with `{`, which is the TypeScript
+  // splitter's grammar; anything it mis-divides fails the lexer and falls back.
   const spans =
     language === 'python'
       ? splitPythonStatements(text)
@@ -694,11 +707,49 @@ export function splitRegionIntoStatements(
   return Object.freeze(usable);
 }
 
+/** The offset of the first byte at or after `from` that is not whitespace or a comment. */
+function skipTrivia(text: string, from: number): number {
+  let i = from;
+  for (;;) {
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (text.startsWith('//', i)) {
+      const end = text.indexOf('\n', i);
+      i = end < 0 ? text.length : end;
+    } else if (text.startsWith('/*', i)) {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 ? text.length : end + 2;
+    } else {
+      return i;
+    }
+  }
+}
+
+/**
+ * Whether the statement that began at `start` goes on past the block or `;` ending at `from`.
+ *
+ * **A `}` at depth 0 ends a block, not always a statement** (DECISIONS §86). `if {…} else {…}`,
+ * `try {…} catch {…} finally {…}` and `do {…} while (…);` are one statement each, and so is a
+ * braceless `if (x) a(); else b();`. Cut between the parts, and eliding the first leaves an
+ * `else`, `catch`, `finally` or `while` attached to a marker. Brackets still balance, so no lexer
+ * objects; measured, a C# grammar re-reading such output loses the enclosing class, and every
+ * method in it reads as gone. TypeScript made the same cut from §50 until §86, unseen because
+ * nothing re-reads its output. A braceless `do x(); while (y);` is not handled.
+ */
+function continuesStatement(text: string, from: number, start: number, afterBlock: boolean): boolean {
+  const at = skipTrivia(text, from);
+  const word = /^[A-Za-z_]\w*/.exec(text.slice(at, at + 8))?.[0];
+  if (word === 'else') return true;
+  if (!afterBlock) return false;
+  if (word === 'catch' || word === 'finally') return true;
+  return word === 'while' && /^do\b/.test(text.slice(skipTrivia(text, start), from));
+}
+
 /**
  * Statement boundaries in a TypeScript/JavaScript body, as offsets into `text`.
  *
  * The lexical states mirror `scanBraceSpans`; see its note on why regex literals are tracked
- * here even though `TypeScriptValidator` does not track them.
+ * here even though `TypeScriptValidator` does not track them. A compound statement stays whole
+ * (`continuesStatement`).
  */
 function splitTypeScriptStatements(text: string): ReadonlyArray<ElisionRegion> {
   const spans: ElisionRegion[] = [];
@@ -790,12 +841,14 @@ function splitTypeScriptStatements(text: string): ReadonlyArray<ElisionRegion> {
       depth--;
       prevSignificant = char;
       if (depth === 0 && char === '}') {
+        if (continuesStatement(text, i + 1, start, true)) continue;
         i = throughLineEnd(i + 1) - 1;
         push(i + 1);
       }
       continue;
     }
     if (char === ';' && depth === 0) {
+      if (continuesStatement(text, i + 1, start, false)) continue;
       i = throughLineEnd(i + 1) - 1;
       push(i + 1);
       continue;
@@ -904,11 +957,18 @@ function splitGoStatements(text: string): ReadonlyArray<ElisionRegion> {
   return spans;
 }
 
+/** A clause continuing the compound statement above it (§86). Matches `except*` too. */
+const PYTHON_CLAUSE = /^(?:else|elif|except|finally)\b/;
+
 /**
  * Statement boundaries in a Python body, as offsets into `text`.
  *
  * Spans begin after the line's indentation and end at the last non-blank line's end, excluding
  * its newline — the boundary `scanPythonDefBodies` establishes and documents.
+ *
+ * A base-indent `else`, `elif`, `except` or `finally` continues the statement above it rather
+ * than starting one (DECISIONS §86, `continuesStatement`'s rule for braces). Splitting there let
+ * an `if` be elided while its `else:` stayed behind, attached to the marker.
  */
 function splitPythonStatements(text: string): ReadonlyArray<ElisionRegion> {
   const lines = text.split('\n');
@@ -937,7 +997,7 @@ function splitPythonStatements(text: string): ReadonlyArray<ElisionRegion> {
     const line = lines[i]!;
     const lineEnd = offset + line.length + 1;
     const blank = line.trim().length === 0;
-    const continues = depth > 0 || triple !== null;
+    const continues = depth > 0 || triple !== null || (i > 0 && PYTHON_CLAUSE.test(line.trimStart()));
 
     if (!blank && !continues && (i === 0 || indentOf(line) === base)) {
       if (start !== null) spans.push({ start, end: lastEnd });
@@ -1158,7 +1218,7 @@ export interface SelectRegionsOptions {
  * The two used to be the same fact written twice in different files, which is how audit M5b's
  * marker formats drifted apart; this list and the check below must not repeat that.
  */
-export type RegionElisionLanguage = 'typescript' | 'python' | 'go';
+export type RegionElisionLanguage = 'typescript' | 'python' | 'go' | 'c' | 'csharp';
 
 export const REGION_ELISION_LANGUAGES: ReadonlyArray<RegionElisionLanguage> = Object.freeze([
   'typescript',
@@ -1168,6 +1228,11 @@ export const REGION_ELISION_LANGUAGES: ReadonlyArray<RegionElisionLanguage> = Ob
   // tidiness: §56 measured that adding this list entry first passes every gate while measuring
   // nothing, because a `struct` or `import` manufactures a symbol body elision cannot destroy.
   'go',
+  // C and C# (R4, DECISIONS §86) are deep-only: `regionElisionLanguage` returns them only when a
+  // Deep backend answers. Their lexers (§84) and backend symbols (§85) landed first, so the region
+  // step is last — §56's safety property, kept.
+  'c',
+  'csharp',
 ]);
 
 /**
@@ -1184,9 +1249,15 @@ export function regionElisionLanguage(
   mode: EngineMode = DEFAULT_ENGINE_MODE,
 ): RegionElisionLanguage | undefined {
   const language = selectValidator(item, mode)?.language;
-  return language !== undefined && (REGION_ELISION_LANGUAGES as ReadonlyArray<string>).includes(language)
-    ? (language as RegionElisionLanguage)
-    : undefined;
+  if (language === undefined || !(REGION_ELISION_LANGUAGES as ReadonlyArray<string>).includes(language)) {
+    return undefined;
+  }
+  // No Fast scanner exists for a deep-only language, so without a Deep backend there are no
+  // regions to select — and it must never fall through to the TypeScript brace scanner.
+  if (isDeepOnlyLanguage(language) && (mode !== 'deep' || resolveParserBackend(language) === undefined)) {
+    return undefined;
+  }
+  return language as RegionElisionLanguage;
 }
 
 /** Whether sub-item elision is available for this item's language. */
@@ -1222,6 +1293,11 @@ export function selectElisionRegions(
   const keepDocstrings = options?.keepDocstrings ?? false;
 
   const backend = mode === 'deep' ? resolveParserBackend(language) : undefined;
+  if (backend === undefined && isDeepOnlyLanguage(language)) {
+    // Unreachable through the gate above; kept so a deep-only language can never reach the
+    // TypeScript scanner that is this function's last branch.
+    return Object.freeze([]);
+  }
   const candidates: ElisionRegion[] = backend
     ? [...backend.regions(content, { keepDocstrings })]
     : language === 'python'

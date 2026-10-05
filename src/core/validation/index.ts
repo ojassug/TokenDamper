@@ -122,7 +122,11 @@ export function validate(
   }
 
   // 3. Evaluate Semantic Drift Tracker
-  const driftTrackerOptions = options?.maxDriftThreshold !== undefined ? { maxDriftThreshold: options.maxDriftThreshold } : {};
+  const driftTrackerOptions = {
+    ...(options?.maxDriftThreshold !== undefined ? { maxDriftThreshold: options.maxDriftThreshold } : {}),
+    // The region mode, because the symbols must witness what that mode can elide (§85).
+    engineMode: options?.coverageMode ?? options?.mode ?? DEFAULT_ENGINE_MODE,
+  };
   const driftTracker = new DriftTracker(driftTrackerOptions);
 
   // `DriftCoverage.symbolBearingItems` used to be computed here, as the set of items an AST
@@ -159,7 +163,11 @@ export function validate(
   // Computed over `before`, not `after`: the question is what this build could have done to the
   // input, which is a property of the input's languages and does not depend on what the stages
   // managed to do (audit H2).
-  const languageSupport: LanguageSupportReport = describeLanguageSupport(before);
+  const languageSupport: LanguageSupportReport = describeLanguageSupport(
+    before,
+    // The region mode: C and C# are reducible only where a Deep backend can find their regions.
+    options?.coverageMode ?? options?.mode ?? DEFAULT_ENGINE_MODE,
+  );
 
   const driftReport = driftTracker.calculateDrift(before, after);
 

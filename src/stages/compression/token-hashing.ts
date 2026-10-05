@@ -13,6 +13,7 @@ import {
 } from '../../core/elision';
 import { ceilingReached, resolveTokenCeiling } from '../../core/budget';
 import { DriftTracker } from '../../core/ledger/drift-tracker';
+import { deepOnlyBackend } from '../../core/parser/deep-only';
 import { TokenHasher } from '../../core/hashing/token-hasher';
 import { DEFAULT_TOKENIZER, estimateBundleTokens, type TokenizerAdapter } from '../../core/hashing/tokenizer';
 
@@ -24,9 +25,10 @@ import { DEFAULT_TOKENIZER, estimateBundleTokens, type TokenizerAdapter } from '
  * implementation would let the two answers diverge — which is DECISIONS §19's lesson about a
  * second token estimator, in a different place.
  */
-function hasExtractableSymbols(item: ContextItem): boolean {
+function hasExtractableSymbols(item: ContextItem, mode: EngineMode): boolean {
   const probe = { items: [item] } as unknown as ContextBundle;
-  return new DriftTracker().extractSymbols(probe).size > 0;
+  // The stage's own mode, so this refusal and the drift gate agree about C and C# (§85).
+  return new DriftTracker({ engineMode: mode }).extractSymbols(probe).size > 0;
 }
 
 export interface TokenHashingStageOptions {
@@ -201,7 +203,15 @@ export function runTokenHashingStage(
     // item then has *all* of its regions removed in one call. Measured, that made the target
     // inert exactly where it is most used — 0.1, 0.3, 0.5 and 0.7 all produced **69.09%** on the
     // same file. The ceiling has to bind at the granularity the compression happens at.
-    const regions = trimRegionsToCeiling(item, allRegions, runningTokens, ceiling, priceMarker, tokenizer);
+    const regions = trimRegionsToCeiling(
+      item,
+      allRegions,
+      runningTokens,
+      ceiling,
+      priceMarker,
+      tokenizer,
+      options?.mode ?? 'fast',
+    );
     if (regions.length > 0) {
       const regionOutcome = elideRegions({
         item,
@@ -253,7 +263,18 @@ export function runTokenHashingStage(
     // Items with no symbols to lose are unaffected and still elided whole: JSON, prose, logs and
     // truncated code are exactly the population this path was written for, and `R_AST` has
     // nothing to score there. That case is governed by the measurement gate (§37) instead.
-    if (hasExtractableSymbols(item)) {
+    if (hasExtractableSymbols(item, options?.mode ?? 'fast')) {
+      itemsSkipped += 1;
+      skipReasons.no_savings += 1;
+      return item;
+    }
+
+    // A deep-only language (C, C#) in deep mode is never elided whole — DECISIONS §86, by §43's
+    // reasoning. Its symbols are the backend's function names alone, so a header of prototypes is
+    // symbol-free, and whole-item elision of symbol-free code can only end in the measurement
+    // gate's refusal (§33): attempting it manufactures a fallback and emits the input anyway.
+    // Fast mode is untouched, so no existing row moves.
+    if (deepOnlyBackend(item, options?.mode ?? 'fast')) {
       itemsSkipped += 1;
       skipReasons.no_savings += 1;
       return item;
@@ -436,6 +457,8 @@ function trimRegionsToCeiling(
    */
   priceMarker: (regionText: string, describes: string) => string,
   tokenizer: TokenizerAdapter,
+  /** The region mode, so a deep-only language's body can be divided too (R4, §86). */
+  mode: EngineMode,
 ): ReadonlyArray<{ readonly start: number; readonly end: number }> {
   if (ceiling === undefined || regions.length === 0) {
     return regions;
@@ -463,7 +486,7 @@ function trimRegionsToCeiling(
   // A region that does not divide into more than one usable span yields `[]`, and the whole
   // region is kept as the candidate. "Did not divide" is not "nothing to elide".
   const candidates = regions.flatMap((region) => {
-    const statements = splitRegionIntoStatements(item, region);
+    const statements = splitRegionIntoStatements(item, region, { mode });
     return statements.length > 1 ? statements : [region];
   });
 

@@ -212,4 +212,8 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { pinEngine, sha256, walk };

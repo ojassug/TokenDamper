@@ -25,7 +25,7 @@ export interface IngestedFile {
  * at all (audit H2), which is not a decision directory walking should get a vote in.
  */
 const INGESTIBLE_EXTENSIONS: ReadonlySet<string> = new Set([
-  'ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp',
+  'ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'cs',
   'sh', 'ps1', 'css', 'scss', 'sql', 'json', 'md', 'txt', 'yml', 'yaml',
 ]);
 

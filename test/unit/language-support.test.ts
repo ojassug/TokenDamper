@@ -49,6 +49,7 @@ describe('which languages elision can reduce (H2)', () => {
     ['go', 'x.go', GO_BODY, true],
     ['rust', 'x.rs', JS_BODY, false],
     ['c', 'x.c', JS_BODY, false],
+    ['csharp', 'x.cs', JS_BODY, false],
     ['java', 'x.java', JS_BODY, false],
     ['shell', 'x.sh', JS_BODY, false],
     ['sql', 'x.sql', JS_BODY, false],
@@ -151,5 +152,29 @@ describe('the report reaches the caller (H2)', () => {
     // And nothing is emitted for a supported language, so the field stays absent rather than
     // carrying an empty string.
     expect(describeLanguageSupport(bundleFor(JS_BODY, 'a.ts', 'typescript')).reason).toBeUndefined();
+  });
+});
+
+describe('C and C# report deep mode as the route (R4)', () => {
+  it('names the deep route for a C file in fast mode', () => {
+    const report = describeLanguageSupport(bundleFor('int f(void) { return 0; }\n', 'x.c', 'c'));
+    expect(report.supported).toBe(0);
+    expect(report.reason).toMatch(/C and C# reduce only under --engine-mode deep/);
+  });
+
+  it('does not mention the deep route when no item is C or C#', () => {
+    expect(describeLanguageSupport(bundleFor(RS_BODY, 'a.rs', 'rust')).reason).not.toMatch(/--engine-mode deep/);
+  });
+
+  it('counts a C file as supported in deep mode once the backend is registered', async () => {
+    const { createDeepBackends } = await import('../../packages/deep/src/index');
+    const { registerParserBackend, clearParserBackends } = await import('../../src/core/parser/registry');
+    for (const b of await createDeepBackends()) if (b.language !== 'javascript') registerParserBackend(b as never);
+    try {
+      expect(describeLanguageSupport(bundleFor('int f(void) { return 0; }\n', 'x.c', 'c'), 'deep').supported).toBe(1);
+      expect(describeLanguageSupport(bundleFor('int f(void) { return 0; }\n', 'x.c', 'c')).supported).toBe(0);
+    } finally {
+      clearParserBackends();
+    }
   });
 });

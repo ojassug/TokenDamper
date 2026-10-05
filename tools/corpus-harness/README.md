@@ -54,6 +54,38 @@ beside the ceiling — regions whose body parsed without an ERROR node, and the 
 error-free files — and an independent brace lexer counts regions whose boundaries it cannot
 balance. The pre-registered floor is `FLOOR`; `test/unit/corpus-harness-ceiling.test.ts` pins it.
 
+## Lexer census (`lexer-census.js`)
+
+A Fast lexer's verdict on every file of one or more checkouts, plus a mutation control — the
+false-positive census DECISIONS §84 gates C and C# on. It lists **every** flagged file, because
+the bar is "every flag read", and refuses a file the Fast chain routes to a different validator.
+
+```bash
+node tools/corpus-harness/lexer-census.js <root> [<root> ...] --language c --out <dir> [--exclude deps]
+```
+
+## In-place manifests (`manifest-in-place.js`)
+
+Hashes a checkout where it stands and writes `measure.js`'s manifest into it, for trees whose
+paths are too deep to flatten on Windows. `--classify` splits source from test and drops generated
+files using `ceiling.js`'s rule. Weaker provenance than a `collect.js` pin; say so when quoting it.
+
+```bash
+node tools/corpus-harness/manifest-in-place.js <root> --bucket redis --ext c,h --exclude deps --classify
+node tools/corpus-harness/measure.js <root> --variant deep --engine-mode deep --routes file
+```
+
+## Function-deletion control (`function-deletion-control.js`)
+
+The hand-elided control behind DECISIONS §85. Every named block-bodied declaration in each file is
+deleted whole, and the drift gate must score `S_k > 0` in deep mode on every file that lost one;
+the fast score is recorded beside it. Needs both builds (`npm run build`, and
+`npx tsc -p packages/deep/tsconfig.json`).
+
+```bash
+node tools/corpus-harness/function-deletion-control.js <root> [<root> ...] --language c --out <dir> [--exclude deps]
+```
+
 ## Timing (`timing-run.js`)
 
 Per-file latency. **A separate invocation on purpose** — wall clock is noisy and
