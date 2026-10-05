@@ -142,6 +142,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Coarser units cost some adherence: TypeScript rows above 50% went 8 → 10. On CPython's
   `asyncio` and on `anyio`, fallbacks are unchanged and adherence improves.
 
+- **The Python validator reads a `\` line continuation (DECISIONS §88).** It checked a continuation
+  line's indentation, which Python ignores. That flagged valid code: **1,110 of the 13,897 `.py`
+  files in a CPython 3.12 install, against 2 now**, and those 2 are PEP 701 f-strings. A flagged
+  file fell back, so this **moves default-path output for Python that uses `\` continuations.**
+  On CPython's standard library (557 files, ratio 0.3, fast mode):
+
+  | route | saved | fallbacks | files that now reduce |
+  |---|---|---|---|
+  | file | 7.24% → 8.60% | 206 → 178 | 26 |
+  | stdin | 5.63% → 7.77% | 110 → 165 | 41 |
+
+  No file that reduced before changes its output. The stdin fallbacks rise because 97 files the
+  Python probe used to leave as plain text are now recognised as Python. 41 of them reduce. The
+  other 55 are refused by the constraint gate, and they emitted their input before too. pip and
+  anyio are black-formatted, have no `\` continuations, and do not move.
+
 ### Fixed
 - **Withdrawn `TOKENDAMPER_*` variables now say so.** The README documented
   `TOKENDAMPER_RISK_TOLERANCE`, `_MAX_OUTPUT_TOKENS`, `_MAX_LATENCY_MS` (v1.2.0) and

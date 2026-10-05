@@ -180,12 +180,12 @@ and takes precedence over budget-derived knapsack selection.
       `resolveRecoverableElisions` substitutes recoverable elisions back before the gate runs,
       so they are structurally invisible to it. The lost case is the one §9 of
       `docs/phase-1-stabilization-summary.md` already called a marker the model cannot resolve. [retired]
-    - **Still open:** a symbol-free code file the **pruner** removes is invisible to drift (the
-      `!after` branch is a deliberate exemption — selection is not elision); and
-      `isCodeExtension` remains a hardcoded 19-entry list that decides whether a real source
-      file is validated at all. `.pl`, `.tcl`, `.rb`, `.lua`, `.swift`, `.kt` are outside it.
-      What changed is that falling outside it now yields a **refusal** rather than a silent
-      deletion.
+    - **Closed as not done (§89):** a symbol-free code file the **pruner** removes is invisible to
+      drift (the `!after` branch is a deliberate exemption — selection is not elision); and
+      `isCodeExtension` remains a hardcoded list, 20 entries since R4 added `cs`, that decides
+      whether a real source file is validated at all. `.pl`, `.tcl`, `.rb`, `.lua`, `.swift`,
+      `.kt` are outside it. What changed is that falling outside it now yields a **refusal**
+      rather than a silent deletion.
     Historical, and still worth knowing: Phase 4b.1 (§29) established that "validator-covered"
     was itself route-dependent — the same barrel file was deleted unwitnessed over stdin because
     nothing covers a pathless item. §33 makes coverage irrelevant to the refusal, so both routes
@@ -193,7 +193,16 @@ and takes precedence over budget-derived knapsack selection.
 
 ## Where the project actually is (read this first)
 
-**The plan is `docs/superpowers/specs/2026-09-09-tokendamper-v2-roadmap-design.md`, decided in
+**TokenDamper is complete. v2.0.0, cut 2026-10-05, is the final release (DECISIONS §89), and
+nothing is scheduled after it.** Every item that was held, left unscheduled, or found during R4
+and recorded rather than fixed is closed in §89 as *not done*, with what would have unblocked it.
+Read §89 before reopening anything. The record lives in DECISIONS §1–§89,
+`docs/audit-remediation-status.md` (the measured baseline), `CHANGELOG.md` and `ROADMAP.md`, which
+keeps every held entry marked closed. **The npm publishes of `tokendamper` and `tokendamper-deep`
+are the user's step.** Check `npm view tokendamper version --prefer-online` before saying what
+consumers get, because this file has been wrong about that before.
+
+**The plan was `docs/superpowers/specs/2026-09-09-tokendamper-v2-roadmap-design.md`, decided in
 DECISIONS §75, scheduled in `ROADMAP.md`.** Four releases, named rather than numbered (§53):
 
 - **R1 — ship the backlog. Cut as v1.7.4 on 2026-09-19; the npm publish is the user's step.**
@@ -243,22 +252,26 @@ DECISIONS §75, scheduled in `ROADMAP.md`.** Four releases, named rather than nu
     `FUNCTION_HEADER` regex cannot match. Net fallbacks fell, 8 recovered against 5 new.
   - `Parser.init()` plus four grammars is **~22ms per process**, answering §75's concern that it
     might make Deep unusable at the CLI. `topology-pruner` is 98% of cold engine time.
-- **R4 / v2.0.0 — `tokendamper-deep` ships**, N languages reduce, and `--mode` is withdrawn
-  (`optimize|bench` today, where `optimize` is the identity and `bench` duplicates the positional
-  command) so the name can mean `fast|deep`. **In progress — Part A has landed on `r4/languages`:**
-  C and C# reduce under deep mode (§84–§86), and §86 also keeps a compound statement whole in
-  TypeScript and Python, which moves default-path output on 29 main-corpus rows with 0 new
-  fallbacks. Part B (`--mode fast|deep`, publishing `tokendamper-deep`) and the release remain, per
-  `docs/superpowers/plans/2026-10-04-r4-c-csharp-and-v2-release.md`. **Start at
-  `docs/r4-start-here.md`**, which carries the state R4 begins from, the three things that do *not*
-  survive a session (the frozen corpus, the timing baseline, the Go corpora), and the two R3
-  findings that constrain it — deep validation cannot be combined with elision, and **a grammar is
-  not enough to reach a language**: JavaScript has a built grammar and is unreachable, because no
-  Fast validator returns the language name a backend would be registered under. Delete that file
-  when R4 lands. Languages are chosen **by measurement** (§3.7) — elidable ceiling on two
-  independent corpora per candidate, each with its own measured fallback rate, never one borrowed.
-  And measure test files separately: `_test.go` is 92.22% elidable against source's lower figure,
-  and nothing in this project has ever counted them.
+- **R4 — CLOSED 2026-10-05, cut as v2.0.0, the final release.** Design
+  `docs/superpowers/specs/2026-10-04-r4-c-csharp-and-v2-release-design.md`, plan beside it in
+  `docs/superpowers/plans/`.
+  - **C and C# reduce under `--mode deep` only** (§84–§86), from `tokendamper-deep`'s tree-sitter
+    tables. Fast mode validates them with new balance lexers (C 2 false positives in 7,914 files,
+    C# 0 in 6,230) and never reduces them. At ratio 0.3 C source saves 6.76–9.59% and C#
+    20.12–21.46%. C's 31–34% fallback rate is the constraint gate on narrative block comments.
+  - **Three default-path changes ship with it**, each measured: §83 (Fast Python reads wrapped and
+    `async` headers, at a stated fallback cost), §86 (a compound statement is one span —
+    `if`/`else`, `try`/`catch`, `do`/`while`, Python's `elif`/`except`), and §88 (`PythonValidator`
+    reads `\` line joining; it falsely flagged 1,110 of 13,897 real Python files before).
+  - **The 2.0 surface (§87):** `--mode fast|deep` on `optimize` only; `--mode optimize|bench` and
+    `--engine-mode` are parse errors naming their replacements; `engine.mode` /
+    `TOKENDAMPER_ENGINE_MODE` set the engine; `bench` and `mcp` refuse a resolved deep; `app.mode`
+    and every withdrawn `TOKENDAMPER_*` variable load with a notice.
+  - **`tokendamper-deep` is a second npm package**, versioned in lockstep with core, with core as
+    an optional peer. The `release` skill's "Two packages" section is how both get published.
+  - **Two findings constrain anyone who reopens this.** Deep validation cannot be combined with
+    elision (§81), and **a grammar is not enough to reach a language**: the Fast chain must name it
+    first, which is why C and C# needed lexers and JavaScript's built grammar is unreachable.
 
 **Deep mode is a language-coverage feature, not a precision one, and §75 records why the two
 obvious alternatives were rejected on measurement.** The lexer is not the binding constraint on

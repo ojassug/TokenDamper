@@ -143,6 +143,50 @@ fresh checkout converts them to CRLF. For v1.8.0 that was 668 bytes, all outside
 identical content. `npm pack <main checkout> --dry-run --json` from anywhere reproduces the
 registry's `shasum` exactly, because that is the tree that was published.
 
+## Two packages (2.0.0 onward)
+
+Since 2.0.0 a release publishes **`tokendamper` and `tokendamper-deep`**, and they share one
+version (DECISIONS §87). `published-package-scope.test.ts` fails if the two disagree.
+
+- **Bump both.** `npm version <x.y.z> --no-git-tag-version` for core, then the same with
+  `-w tokendamper-deep` for the deep package. On a major, also move the deep package's
+  `peerDependencies.tokendamper` to `^<major>.0.0`.
+- **Check both tarballs.** Run `npm pack --dry-run`, then again with `-w tokendamper-deep`. Core
+  must hold nothing from `packages/`, and deep only `dist`, `README.md`, `LICENSE` and
+  `package.json`.
+- **Hand over four commands, in order, all in the main checkout:**
+
+  ```bash
+  git pull origin main
+  ```
+
+  ```bash
+  npm ci
+  ```
+
+  ```bash
+  npm publish
+  ```
+
+  ```bash
+  npm publish -w tokendamper-deep
+  ```
+
+  `npm ci` is there because a main checkout's `node_modules` can predate the grammars the suite
+  needs, and `prepublishOnly` runs the suite. Ask them to read both banners before each 2FA prompt:
+  `tokendamper@<x.y.z>`, then `tokendamper-deep@<x.y.z>`.
+- **Core first.** The deep package's peer range names core, and a consumer installing both should
+  never find deep at a version whose core is not on the registry yet.
+- **Verify both afterwards:**
+
+  ```bash
+  npm view tokendamper version --prefer-online
+  npm view tokendamper-deep version --prefer-online
+  ```
+
+  Then confirm each `gitHead` is the tag commit, and hash the published `dist` against a local
+  build of the tag, for each package.
+
 ## Things that have gone wrong here
 
 - **`dist/` is what ships.** `package.json` `files` publishes `dist`, `test/fixtures/bench` and
