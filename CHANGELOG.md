@@ -9,7 +9,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 > rewriting it would falsify that. See `docs/retired-documents.md` for where each conclusion
 > lives now and how to read the original out of git.
 
-## [Unreleased]
+## [v2.0.0] - 2026-10-05
+
+**The final TokenDamper release (DECISIONS §89).** This is R4 of the road to v2.0. C and C#
+reduce under deep mode, `tokendamper-deep` is published alongside core, and `--mode` becomes the
+engine. Nothing is scheduled after it, and §89 closes every held item as not done.
+
+**A major, because three spellings that worked in 1.x are now refused:** `--mode bench`,
+`--mode optimize` and `--engine-mode`. Each refusal names its replacement. `app.mode` and
+`TOKENDAMPER_APP_MODE` now load with a notice instead of taking effect, though they never did take
+effect.
+
+**What changes for someone upgrading:**
+
+- **The flag surface** (§87), under Breaking below.
+- **C and C# reduce under `--mode deep`**, with `tokendamper-deep` installed (§84–§86). At ratio
+  0.3, C source files save 6.76–9.59% and C# 20.12–21.46%. Fast mode validates both and never
+  reduces them.
+- **The default path moves for Python and TypeScript, in three measured ways:**
+  - **§83: Fast Python reads wrapped and `async def` headers.** On pip, the file route goes
+    17.75% → 19.53%. **It costs fallbacks on async-heavy code**: across three corpora, 2 recovered
+    and 9 new. That trade was accepted by explicit decision.
+  - **§86: a compound statement is one span.** 29 main-corpus rows move, and none newly falls
+    back. TypeScript rows above 50% go 8 → 10.
+  - **§88: the Python validator reads `\` line continuations.** It had falsely flagged 1,110 of
+    13,897 real Python files. On CPython's standard library, the file route goes 7.24% → 8.60%
+    with no new fallbacks.
+
+The sections below are the entries as they were written while the release was built.
 
 ### Breaking
 - **`--mode` selects the engine: `fast` (default) or `deep`, on `optimize` only (DECISIONS §87).**

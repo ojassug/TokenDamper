@@ -1,6 +1,6 @@
 {
   "name": "tokendamper-deep",
-  "version": "1.8.0",
+  "version": "2.0.0",
   "description": "Deep mode for TokenDamper: tree-sitter (WASM) parser backends. C and C# reduce only through it; it also answers for TypeScript, Python and Go.",
   "license": "MPL-2.0",
   "repository": {
@@ -33,7 +33,7 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "peerDependencies": {
-    "tokendamper": "^1.0.0"
+    "tokendamper": "^2.0.0"
   },
   "peerDependenciesMeta": {
     "tokendamper": {

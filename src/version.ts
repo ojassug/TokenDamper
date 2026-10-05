@@ -1,1 +1,1 @@
-export const TOKENDAMPER_VERSION = '1.8.0';
+export const TOKENDAMPER_VERSION = '2.0.0';
