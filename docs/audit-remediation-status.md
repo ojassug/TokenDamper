@@ -3,6 +3,15 @@
 Working state for the `max_audit.md` remediation. **Read this before picking up audit work**;
 it records what is done, what is measured, and what the next batch actually requires.
 
+> **TokenDamper is complete. v2.0.0, cut 2026-10-05, is the final release (DECISIONS §89).** R4
+> shipped C and C# under deep mode (§84–§86), three measured default-path changes (§83, §86, §88)
+> and the 2.0 surface with `tokendamper-deep` published (§87). Every held item is closed in §89 as
+> *not done*, with what would have unblocked it. Nothing is scheduled after this. The text below is
+> the record as it stood at each release, and its "next steps" are superseded by §89. The npm
+> publishes are the user's step: check `npm view tokendamper version --prefer-online` for what
+> consumers get. For C and C#, the measured baseline is §86's per-corpus table; for Python under
+> §88, the stdlib corpus in §88.
+
 Last updated 2026-09-25. **Cut as v1.8.0 (2026-09-24) — R2 and R3 of the road to v2.0, together:**
 §77 (the constraint gate stops firing on descriptive comments — 10 files recovered, 0 new
 fallbacks), §76 (the per-file latency instrument) and §79–§81 (the `ParserAdapter` seam, Deep

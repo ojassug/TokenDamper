@@ -1,6 +1,21 @@
 # TokenDamper Product Roadmap — v1.1.0 → v2.0.0
 
-**Baseline:** **v1.8.0** — *cut 2026-09-24; it reaches consumers when the registry says so, not
+> ## TokenDamper is complete. v2.0.0 is the final release (DECISIONS §89).
+>
+> v2.0.0 was cut on 2026-10-05, and nothing is scheduled after it. It ships R4:
+>
+> - C and C# reduce under deep mode (§84–§86);
+> - Fast Python reads wrapped and `async` headers (§83);
+> - a compound statement is one span (§86);
+> - `PythonValidator` reads explicit line joining (§88);
+> - `--mode` is the engine, and `tokendamper-deep` is published (§87).
+>
+> **Every section below marked *held* or *unnumbered* is closed, not done.** §89 gives each one's
+> reason and what would have unblocked it. Nothing was deleted to make the end look tidy, because
+> an item in no table reads as done (§55). What consumers get is what the registry serves: check
+> `npm view tokendamper version`, not the tag list.
+
+**The release before it:** **v1.8.0** — *cut 2026-09-24; it reaches consumers when the registry says so, not
 when the tag exists.* It ships **R2 and R3 together**: the constraint gate stops firing on
 descriptive comments (**§77** — 10 files recovered, 0 new fallbacks), the per-file latency
 instrument (**§76**), and the `ParserAdapter` seam with an opt-in Deep path behind
@@ -115,24 +130,28 @@ v1.1.0 (tag @ 807f6f0) — never published to npm
              │       we can still hand-check it. CUT as v1.8.0 (2026-09-24).
              │       On npm 2026-09-24: `npm view` reads 1.8.0.
              │
-             └── v2.0.0  tokendamper-deep + grammars; --mode fast|deep,
-                    old --mode withdrawn. A major signals BREAKING — §53
+             └── R4  CUT as v2.0.0 (2026-10-05) — THE FINAL RELEASE (§89).
+                    C and C# reduce under deep; tokendamper-deep is published;
+                    --mode fast|deep, with --mode optimize|bench and
+                    --engine-mode withdrawn. A major signals BREAKING — §53
 
-  held — MCP over Streamable HTTP/SSE · LiteLLM guardrail · Prometheus
+  closed, not done — §89 (was held) — MCP over Streamable HTTP/SSE ·
+       LiteLLM guardrail · Prometheus
        ↩ Moved off v2.0.0 2026-09-09. MCP-over-HTTP has no premise problem
-          and is the strongest candidate for the release after 2.0; the
+          and was the strongest candidate for a release after 2.0; the
           other two instrument a path that saves 0 bytes cross-turn by
-          design (invariant 8). Unscheduled, not closed.
+          design (invariant 8).
 
-  held — Granular Sub-Query Re-hydration & MCP Tool Extension
+  closed, not done — §89 (was held) — Granular Sub-Query Re-hydration &
+       MCP Tool Extension
        ✅ Buildable: M5b shipped in Wave 2, so the base rehydration path
-          works. What remains is designing the targeted-match response
+          works. What remained was designing the targeted-match response
           shape. It held v1.5.0 and lost it to work that finished first.
 
-  unnumbered — Context Selection Quality & Redundancy Elimination
-       ⛔ Holds no version number. BM25 has no query source; MMR found 0 of
-          1,486 pairs above its 0.90 threshold. It gets a number when its
-          preconditions hold, not before.
+  closed, not done — §89 (was unnumbered) — Context Selection Quality &
+       Redundancy Elimination
+       ⛔ BM25 has no query source; MMR found 0 of 1,486 pairs above its
+          0.90 threshold. Its preconditions never held.
 
   ~~unnumbered — AST Code Folding ("Fast" vs "Deep") & Cache Alignment~~
        ↪ Replaced 2026-09-09 by the R1–R4 spine above. Deep mode is a
@@ -274,7 +293,10 @@ elision is what closes that and is the next piece of work
 
 ---
 
-## Unnumbered — Context Selection Quality & Redundancy Elimination
+## Closed, not done — Context Selection Quality & Redundancy Elimination
+
+**Closed, not done, in DECISIONS §89 (2026-10-05).** Both preconditions were measured false and
+never came true. Kept below as written.
 
 > ### ⛔ Holds no version number, and that is the point.
 >
@@ -691,6 +713,12 @@ pretending otherwise would either block the feature or launder a regression as a
 
 ### R4 — v2.0.0
 
+**Shipped as v2.0.0, cut 2026-10-05, the final release.** C and C# reduce under deep mode, each
+measured on two corpora with its own fallback rate (§84–§86). `tokendamper-deep` is published, and
+`--mode fast|deep` took the name (§87). The plan below is kept as written. Where the design changed
+— C and C# chosen by §82's measurement, §83's Python fix, and §86 and §88 found along the way — the
+DECISIONS entries carry the reason.
+
 `tokendamper-deep` ships, N new languages reduce, and the flag surface is rationalized. See the
 v2.0.0 section below for what breaks.
 
@@ -741,7 +769,10 @@ before asserting anything about its symbols.
 
 ---
 
-## Held — Granular Sub-Query Re-hydration & MCP Tool Extension
+## Closed, not done — Granular Sub-Query Re-hydration & MCP Tool Extension
+
+**Closed, not done, in DECISIONS §89 (2026-10-05).** It was buildable; the targeted-match response
+shape was never designed. Kept below as written.
 
 > **✅ Unblocked — M5b shipped in Wave 2 (DECISIONS §44).** This release adds a `query` field to
 > `rehydrate_context`, and that tool's session path had **never worked**: its regex
@@ -781,7 +812,11 @@ Update `TOOL_DEFINITIONS` in `src/adapters/mcp/tools.ts` — this matches the to
 
 ---
 
-## v2.0.0 — Deep Mode: N Languages, One Seam
+## v2.0.0 — Deep Mode: N Languages, One Seam — **SHIPPED 2026-10-05, the final release**
+
+**Cut 2026-10-05.** It shipped what this section planned. `--engine-mode`, which R3 added after
+this section was written, is withdrawn too, with no alias (§87). The C and C# figures are in §86
+and the README.
 
 > **⚠ This section was "Enterprise Gateway, Remote MCP & Proxy Guardrails" until 2026-09-09, and
 > the change is a re-scope, not a reshuffle.** The design doc
@@ -823,9 +858,10 @@ naming the replacement. Anything else turns a documentation change into an outag
 saves 0 bytes, and `test/integration/gateway-dedup-reality.test.ts` still pins it. Deep mode does
 not touch that path.
 
-### Held — the ecosystem items, unscheduled rather than closed
+### Closed, not done — the ecosystem items
 
-Listed with their preconditions so the next person does not re-derive them.
+**Closed, not done, in DECISIONS §89 (2026-10-05).** Listed with their preconditions, as before, so
+anyone who resumes the project does not re-derive them.
 
 - **MCP over Streamable HTTP/SSE** — extend `McpStdioServer` (`src/adapters/mcp/server.ts`) with
   SSE and HTTP POST transports alongside stdio, enabling remote containers and cloud agents.
@@ -869,13 +905,13 @@ remediation track was inserted. Corrected below; the numbering now matches the c
 | **v1.7.4** | **R1 — ship the backlog** | The 2026-08-30 security remediation, §73–§74 (S-01–S-04) · three `oxaudit.md` tooling items · the README restructure · v1.7.3 carried with it | No corpus run — R1 adds no code | **Cut 2026-09-19.** A patch over moved output, by explicit call; publish is the user's step |
 | **v1.8.0** | **R2 — a trustworthy instrument** | **DONE 2026-09-19.** Latency harness (§76) · Axis A shipped (§77 — 10 files recovered, 0 new fallbacks, retention 100%) · Axis B closed without implementing (§78 — ceiling 1 file of 188) | Retention side at 100%; a pinned latency baseline | **Exit met.** R3 unblocked · **Cut and published 2026-09-24** with R3 |
 | **v1.8.0** | **R3 — the seam** | **DONE 2026-09-23.** `ParserAdapter` + Deep on **3** live languages (JS unresolvable); `--engine-mode deep` | Steps 1–2 byte-identical; step 3 classified — 540/594 identical, python 17.75%→22.26%, adherence 12→20 rows on target | **Exit met, 2 deviations (§81).** Deep cannot validate its own elision marker, so `validationMode` is a separate axis defaulting to fast · **Cut and published 2026-09-24** with R2 |
-| *unnumbered* | Selection quality | BM25 + graph hybrid scorer, dual-path MMR | `<10ms` pipeline selection | ⛔ **Both preconditions measured false** — holds no number |
+| *unnumbered* | Selection quality | BM25 + graph hybrid scorer, dual-path MMR | `<10ms` pipeline selection | **Closed, not done — §89.** Both preconditions measured false, and neither came true |
 | ~~*unnumbered*~~ | ~~Folding & cache~~ | **Split 2026-09-09.** Folding → the R1–R4 spine (Deep is coverage, not precision); `cache_control` → Milestone 8 | — | ↪ **Replaced.** Fast was already shipped in `elision/regions.ts` |
-| *held* | Retrieval | `rehydrate_context` with sub-query matching | Targeted line extraction | ✅ Unblocked (M5b shipped); response shape still to design |
-| **v2.0.0** | **Deep mode** | `tokendamper-deep` ships; N languages reduce; `--mode fast\|deep` takes the name and the old `--mode optimize\|bench` is withdrawn | Per language: measured ceiling on **two** corpora + its own fallback rate | Re-scoped 2026-09-09 from Ecosystem |
-| *held* | Ecosystem | Streamable HTTP/SSE MCP, LiteLLM plugin, Prometheus metrics | High-throughput multi-agent proxy | ↩ Moved off v2.0.0. MCP-over-HTTP has no premise problem; the other two instrument a path saving 0 bytes cross-turn (invariant 8) |
-| Milestone 8 | Caching | MCP Schema Deduplication & Cache-Aligned Knapsack | 100% Provider Cache Hit Rates | ⚠ A answered — knapsack reachable; needs an exact tokenizer |
-| Milestone 9 | Guardrails | Agent Loop Circuit Breaking & Critical Atom Recall Tracking | $S_k \le 0.40$ enforcement | ⚠ C1 + H6 both shipped; re-derive against the current metric |
+| *held* | Retrieval | `rehydrate_context` with sub-query matching | Targeted line extraction | **Closed, not done — §89.** Unblocked by M5b; the response shape was never designed |
+| **v2.0.0** | **Deep mode** | `tokendamper-deep` ships; N languages reduce; `--mode fast\|deep` takes the name and the old `--mode optimize\|bench` is withdrawn | Per language: measured ceiling on **two** corpora + its own fallback rate | **Cut 2026-10-05 — the final release.** C and C# reduce under deep, each on two corpora with its own fallback rate (§84–§86) |
+| *held* | Ecosystem | Streamable HTTP/SSE MCP, LiteLLM plugin, Prometheus metrics | High-throughput multi-agent proxy | **Closed, not done — §89.** Moved off v2.0.0. MCP-over-HTTP had no premise problem; the other two instrument a path saving 0 bytes cross-turn (invariant 8) |
+| Milestone 8 | Caching | MCP Schema Deduplication & Cache-Aligned Knapsack | 100% Provider Cache Hit Rates | **Closed, not done — §89.** A answered — knapsack reachable; needs an exact tokenizer |
+| Milestone 9 | Guardrails | Agent Loop Circuit Breaking & Critical Atom Recall Tracking | $S_k \le 0.40$ enforcement | **Closed, not done — §89.** C1 + H6 both shipped; re-derive against the current metric |
 
 **The design behind R1–R4 is
 `docs/superpowers/specs/2026-09-09-tokendamper-v2-roadmap-design.md`**, whose §8 enumerates every
@@ -886,8 +922,9 @@ closed while a whole severity band sat unscheduled (§55, status-doc §6 and §8
 **Not in this table, because it is not a release: `docs/audit-remediation-status.md` §7 carries
 the near-term work.** Four of the five items it listed are now closed — sub-region elision
 shipped (§50), per-item drift closed unbuilt (§51), the constraint gate narrowed (§52) and M7
-done (§54). **Widening elision beyond three languages is what remains**, and its precondition
-holds, which the "Selection quality" row's does not.
+done (§54). **Widening elision beyond three languages is what remained**, and its precondition
+held, which the "Selection quality" row's did not. R1–R4 took it to six: Go in v1.6.1, then C and
+C# under deep in v2.0.0. The rest is closed in §89.
 
 ### Measured starting position (2026-08-07, `f93c385`) — historical
 

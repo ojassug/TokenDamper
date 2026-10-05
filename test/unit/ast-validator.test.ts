@@ -223,6 +223,46 @@ def process_data(items):
   });
 });
 
+describe('PythonValidator reads explicit line joining (DECISIONS §88)', () => {
+  // A line ending in a code backslash joins the next one into the same logical line, and a
+  // continuation line's indentation means nothing. The validator checked it anyway, flagging
+  // valid code in 4 of CPython asyncio's 30 files. The first three fail against that validator.
+  const validator = new PythonValidator();
+  const issues = (py: string) => validator.validate(py).issues.map((i) => i.message);
+
+  it('accepts a continuation indented past its block (asyncio/sslproto.py)', () => {
+    const py = [
+      'class P:',
+      '    def start(self):',
+      '        self._handle = \\',
+      '            self._loop.call_later(self._timeout,',
+      '                                  lambda: self._check())',
+      '        self._go()',
+    ].join('\n');
+    expect(issues(py)).toEqual([]);
+  });
+
+  it('accepts a continuation dedented below its block, and the block resumes after it', () => {
+    const py = ['def f():', '    x = 1 + \\', '2', '    return x'].join('\n');
+    expect(issues(py)).toEqual([]);
+  });
+
+  it('accepts a chain of continuations ending in the colon that opens a block', () => {
+    const py = ['if a and \\', '        b and \\', '        c:', '    pass'].join('\n');
+    expect(issues(py)).toEqual([]);
+  });
+
+  it('control: a backslash in a comment joins nothing', () => {
+    const py = ['x = 1  # see below \\', '    y = 2'].join('\n');
+    expect(issues(py).some((m) => m.startsWith('Unexpected indent'))).toBe(true);
+  });
+
+  it('control: an indent with no backslash before it is still flagged', () => {
+    const py = ['def f():', '    x = 1 +', '        2', '    return x'].join('\n');
+    expect(issues(py).some((m) => m.startsWith('Unexpected indent'))).toBe(true);
+  });
+});
+
 describe('Orchestrator: validateItemAst & validateBundleAst', () => {
   it('validates individual items based on language and path', () => {
     const itemJs = createContextItem({

@@ -662,7 +662,7 @@ export const SUPPORTED_FLAGS: Readonly<Record<'optimize' | 'bench' | 'mcp', Read
   // `--mode` (the engine) is optimize-only. `src/bench/runner.ts` never reads an engine mode, and
   // the MCP server registers no backends, so accepting `--mode deep` on either would report a
   // deep run that never happened (invariant 10). Deep through bench or MCP is closed as not done
-  // in DECISIONS §88.
+  // in DECISIONS §89.
   bench: new Set([...COMMON_FLAGS, '--report-json', '--quiet', '--evaluate-quality']),
   mcp: new Set(COMMON_FLAGS),
 };

@@ -7617,6 +7617,10 @@ pre-existing issues, so such a file reduces only when elision happens to remove 
 That is the `sslproto.py` row above. It is a default-path false positive older than R4, and it is
 not fixed here.
 
+*Landing note, 2026-10-05: fixed in §88, by the owner's decision.* The 4 asyncio files were the
+visible tip. Across a whole CPython install the validator flagged 1,110 of 13,897 files, almost
+all of them for this.
+
 ### What this does **not** establish
 
 - **stdin for C or C#.** `measure.js` passes no `--language`, and a pathless item has no
@@ -7728,6 +7732,12 @@ registry.
 `measure.js` takes `--mode` and passes `--mode`. A leftover `--engine-mode` is refused. Its option
 parser would otherwise drop it and measure fast under a label that said deep.
 
+*Landing note, 2026-10-05:* **the harness can no longer drive a pre-2.0 build in a pinned mode**,
+because that CLI rejects `--mode fast|deep`. §88 hit it: every child exited before reading its
+stdin, and the unhandled `EPIPE` killed the harness mid-run. To measure an older build, use the
+`measure.js` from that build's commit. A child that exits early is now recorded as a failed run
+rather than crashing the harness.
+
 ### What this does **not** establish
 
 - **An install from the registry.** Nothing can be installed until it is published. The dry runs
@@ -7737,4 +7747,155 @@ parser would otherwise drop it and measure fast under a label that said deep.
   arm64, so no compiler is needed there. Elsewhere npm 10, which Node 20 and 22 bundle, would try
   to compile native bindings `tokendamper-deep` never loads, because it reads the `.wasm` files.
   npm 11 skips unapproved install scripts. Neither path is tested here.
-- **Deep through `bench` or MCP.** It is refused, not implemented. §88 closes it as not done.
+- **Deep through `bench` or MCP.** It is refused, not implemented. §89 closes it as not done.
+
+---
+
+## 88. PythonValidator Reads Explicit Line Joining
+
+**Status: implemented and measured, 2026-10-05.** §86 found it ("Found off the path"), and the
+project owner decided it ships in 2.0.0. **It moves default-path output for Python files that use
+a `\` line continuation.**
+
+### The defect
+
+Python joins a line ending in a backslash to the next one, when the backslash is code rather than
+part of a string or a comment, and the continuation line's indentation means nothing.
+`PythonValidator` checked it anyway, in two ways:
+
+- **A continuation indented past its block** was flagged as an unexpected indent.
+- **A continuation indented less** read as a dedent. When it matched an outer level it raised
+  nothing, but it popped the indent stack, so every later line in the block was flagged instead.
+
+Validation subtracts no issue the input already had (§84). Phase 1c's revert cannot help either,
+because the original is what fails. So a flagged file fell back, unless elision happened to remove
+every flagged line. That is how `asyncio/sslproto.py` reduced at A13 and fell back at A14 (§86).
+
+### The census
+
+Both validators were run over every `.py` file in a CPython 3.12.10 install: the standard library,
+its tests and `site-packages`.
+
+| | files flagged |
+|---|---|
+| before | **1,110 of 13,897 (7.99%)** |
+| after | **2 (0.01%)** |
+
+- **11,230 issues were removed and 0 added.**
+- **9,506 of them sit on the line directly after a backslash.** The rest are cascades through the
+  indent stack. In every file but four, the first removed issue follows a backslash. In those four,
+  all sympy tests, the root is a continuation that read as a dedent to a matching level, and so
+  raised nothing itself.
+- **The two that remain are PEP 701 f-strings,** with a multi-line expression inside the braces,
+  in CPython's own `test_fstring.py` and `test_grammar.py`. That is a different class, not handled.
+
+§84 held the new lexers to 0.1% false positives on at least 5,000 files. This one ran at 7.99% on
+real Python and nothing measured it, because the corpora that measure Python are black-formatted:
+pip's 45 files and anyio's 37 hold no backslash continuations. That is §56's corpus-bias caveat
+again.
+
+### The fix
+
+`joinsPreviousLine` marks the line after one that ends in a code backslash, and that line's
+indentation is not checked. A backslash inside a string already continued the string, and one in a
+comment continues nothing. Three known-answer tests fail against the old validator. Two controls
+pass both ways: a backslash in a comment, and an indent with no backslash before it, both still
+flagged.
+
+### Measured
+
+The corpus is CPython 3.12.10's standard library source, frozen with `collect.js`: 557 files, with
+tests and `site-packages` excluded. **105 of them (18.9%) were flagged before, and 0 after.** At
+ratio 0.3, the before-arm is Part B's head, and it differs from the after-arm only in
+`python-validator.js`.
+
+| route | mode | saved | fallbacks | rows that now reduce |
+|---|---|---|---|---|
+| file | fast | 7.24% → **8.60%** | 206 → **178** | 26 |
+| stdin | fast | 5.63% → **7.77%** | 110 → 165 | 41 |
+| file | deep | 8.23% → **9.99%** | 200 → **168** | 30 |
+| stdin | deep | 5.78% → **8.55%** | 108 → 156 | 47 |
+
+- **No row that reduced before changes its output.** Every moved row is one that now reduces.
+- **On the file route there are only gains.** No row newly falls back.
+- **Over stdin, fallbacks rise, and nothing is lost.** The Python content probe (§31) claims only
+  content `PythonValidator` accepts. So 97 stdin files it used to leave as `text` or `markdown` are
+  now recognised as Python and checked. In fast mode, 41 of them reduce, and 55 are elided and then
+  refused by the constraint gate. Those 55 emitted their input before and still do. By the strict
+  count that is 55 new fallbacks; by output it is none.
+- **asyncio and anyio:**
+  - In fast mode, no output moves. Three asyncio file rows still fall back, on the constraint gate
+    alone now. Four stdin rows become checked code and are refused.
+  - In deep mode, `sslproto.py` recovers on both routes, and asyncio goes 7.13% → 9.06%.
+  - anyio does not move at all.
+- **The main corpus is identical on all 602 rows in both modes.** pip has no backslash
+  continuations, so that says nothing about the fix (§56). It says only that nothing else moved.
+
+### What this does **not** establish
+
+- **PEP 701 f-strings**, the two remaining flags.
+- **Retention.** A newly reducing file has its bodies elided like any other, and nothing here
+  measures what a model does with the result.
+- **Any ratio but 0.3.**
+
+---
+
+## 89. TokenDamper Is Complete: Every Held Item, Closed As Not Done
+
+**Status: decided 2026-10-04 by the project owner, recorded 2026-10-05.** v2.0.0 is the final
+TokenDamper release, and nothing is scheduled after it. This entry gives every item that was
+held, left unscheduled, or found during R4 and recorded rather than fixed a final disposition of
+*not done*. Each row says why the item was held and what would have unblocked it. Nothing is
+deleted from `ROADMAP.md` or anywhere else, because an item in no table reads as done (§55).
+
+### What the four releases shipped
+
+- **R1, v1.7.4:** the 2026-08-30 security remediation (§73–§74).
+- **R2 and R3, v1.8.0:** the constraint gate's Axis A (§77), the latency harness (§76), the
+  `ParserAdapter` seam, and Deep for TypeScript, Python and Go (§79–§81).
+- **R4, v2.0.0:**
+  - C and C# reduce under deep mode (§84–§86);
+  - Fast Python reads wrapped and `async` headers (§83);
+  - a compound statement is one span in every language (§86);
+  - `PythonValidator` reads explicit line joining (§88);
+  - `--mode` is the engine, and `tokendamper-deep` is published (§87).
+
+### Held items, closed as not done
+
+| item | held because | would have unblocked it |
+|---|---|---|
+| **G4** — sub-statement elision inside a control-flow block | It competed with the language spine for one measurement budget. 18 of 576 rows exceeded 50% achieved in September. In R4, 72 of curl tests' 121 rows above 50% are bodies that §50's rules cannot divide | A splitter that divides inside a nested block while staying balanced, measured on adherence over a frozen corpus |
+| **G5** — bundle-scoped drift | `SEMANTIC_DRIFT_EXCEEDED` caused 0 of 117 corpus fallbacks (§51). After §86 it causes 0 on all four C and C# corpora as well | A measured case: a multi-item bundle falling back on drift alone |
+| **G6** — `isCodeExtension` is a hand-written list | Folded into R4, which added `.cs` and nothing else. `.rb`, `.lua`, `.swift`, `.kt`, `.pl` and `.tcl` stay outside it, refused rather than silently deleted (§33) | Each language reaching elision by §75's process |
+| **G7** — an exact tokenizer, `cache_control` placement, Milestone 8 | It needs a caller-supplied `cl100k_base` encoder. `DEFAULT_TOKENIZER` is a one-line change; the dependency decision is not | The decision to take a tokenizer dependency |
+| **G8** — the `rehydrate_context` sub-query | Unblocked since §44. A targeted match returns a different shape, which was never designed | A designed return shape |
+| **G9** — MCP over Streamable HTTP or SSE | No premise problem. It was simply not on the spine | Nothing but time. It was the strongest candidate for a release after 2.0 |
+| **G9** — a LiteLLM guardrail and Prometheus `/metrics` | §54 fixed the measurement half. The premise half stands: the Gateway saves nothing across turns, so there is little to instrument | Export within-payload dedup and the fallback rate, or nothing |
+| **Milestone 9** — loop circuit breaking and critical-atom recall | C1 and H6 shipped, so its two blockers closed and its design needs re-deriving against the post-§40 metric. `DebtTracker`'s rehydration is inert on the CLI, which supplies no hasher or ledger (M13) | A re-derivation, and a ledger on the CLI path |
+| **Context Selection Quality** — BM25 and MMR | Both preconditions were measured false. Nothing in `src/` carries a query, and 0 of 1,486 real file pairs exceed MMR's 0.90 | A source for the query; conversational redundancy for MMR, which is Gateway traffic |
+| **Deep through `bench` and MCP** | Refused at 2.0 rather than run fast under a deep label (§87) | `engineMode` threaded through `BenchmarkRunnerConfig` and `runner.ts`, and backends registered at MCP startup |
+| **C++, Rust, Java, Ruby, Kotlin, PHP and Swift** | §82: C++ clears only as registered, and its clean-body bound on abseil is 26.7%. Rust, Java, Ruby and Kotlin fall below the 40% floor, and PHP splits across it. Swift was not measured, because `tree-sitter-swift` 0.7.1 ships no `.wasm` | For C++, a clean-body ceiling above the floor on both corpora. For the rest, two corpora clearing it |
+| **§79's question** — whether Deep's symbols should replace the regexes for TypeScript, Python and Go | §86 replaced them for C and C# only, where the regex was measured wrong. For the other three, no measurement says replacement is better | A per-row A/B on the main corpus, with §85's deletion control |
+| **Security §9.1 item 5** — concurrency and timing | Sessions racing on `pruneExpired` and `evictOldestSession`, and the timing profile of `getContent`'s prefix walk, were never exercised | A race harness and a timing measurement |
+| **Security §9.1 item 6** — whether a model acts on forged provenance | It decides whether F-06 and F-07 are Low or Medium, and it is an experiment, not a fix | The experiment |
+| **F-06 and F-07 residuals, D-1 and D-2** | Recorded, not scheduled, at §3.1 and §12.5 of the security review. Escaping content would corrupt the bytes the tool delivers, and a per-run nonce would break invariant 1 | A content-safe envelope, and a deterministic way to authenticate a marker |
+
+### Found during R4, recorded rather than fixed
+
+| item | where | would have unblocked it |
+|---|---|---|
+| Six post-condition skips in 3,650 C and C# rows. Three are region boundaries that grammar error recovery misplaced around directives; three are C# strings lexed with TypeScript's rules. All fail safe | §86 | A per-candidate lexer check, or a C#-aware splitter |
+| A braceless `do x(); while (y);` is not kept whole | §86 | Tracking a `do` statement through its first `;` |
+| `PythonValidator` flags 2 of 13,897 real files, both PEP 701 f-strings with a multi-line expression inside the braces | §88 | An f-string lexer that recurses into replacement fields |
+| An install of `tokendamper-deep` on a platform without prebuilt grammar bindings is untested | §87 | An install on such a platform, under npm 10 |
+| Fast's TypeScript header test cannot match a signature whose return type ends in `}`, and Deep starts a Python body after a leading comment Fast includes | §81 | A header rule that follows the brace structure |
+| A symbol-free code file that the pruner removes is invisible to drift | §33 | Measuring selection as well as elision |
+| The constraint gate is the binding limit on reduction. It refuses 31–34% of C source files on narrative block comments | §52, §75, §78 | §78 names what would reopen Axis B |
+
+### Where the record lives
+
+- **DECISIONS §1–§89** is the reasoning, with every measurement.
+- **`docs/audit-remediation-status.md`** is the measured baseline.
+- **`CHANGELOG.md`** says what each release changed.
+- **`ROADMAP.md`** keeps every held entry, each marked closed and pointing here.
+- **The corpora** are recorded by commit and content hash in the entries that measured them.

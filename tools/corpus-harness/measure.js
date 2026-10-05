@@ -98,6 +98,11 @@ function runOnce({ route, absPath, bytes, ratio, engineMode }) {
       });
     });
 
+    // A CLI that exits before reading stdin (a rejected flag, a crash) closes the pipe under this
+    // write. Unhandled, that `EPIPE` killed the whole harness mid-run and lost every row already
+    // measured — seen in §88 when a pre-2.0 build rejected `--mode`. The run is still recorded:
+    // `close` resolves it with the child's exit code, so it counts as failed.
+    child.stdin.on('error', () => {});
     if (route === 'stdin') {
       child.stdin.write(bytes);
     }
