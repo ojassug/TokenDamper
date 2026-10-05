@@ -80,7 +80,7 @@ export function describeLanguageSupport(
   const languages = [...unsupportedLanguages].sort();
   const noneSupported = bundle.items.length > 0 && supported === 0;
   const deepNote = deepOnly
-    ? ' C and C# reduce only under --engine-mode deep, which needs the tokendamper-deep package.'
+    ? ' C and C# reduce only under --mode deep, which needs the tokendamper-deep package.'
     : '';
 
   return {

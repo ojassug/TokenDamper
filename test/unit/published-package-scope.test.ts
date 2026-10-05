@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -69,5 +69,46 @@ describe('the published package ships the product, not the suite', () => {
     const pkg = readJson('package.json') as { files: string[] };
     expect(pkg.files).toContain('dist');
     expect(pkg.files.some((f) => f.startsWith('dist/'))).toBe(false);
+  });
+});
+
+/**
+ * 2.0.0 publishes `packages/deep` as its own package (DECISIONS §87). Core keeps zero runtime
+ * dependencies — the grammars and `web-tree-sitter` are the deep package's — and the two version
+ * in lockstep, so `tokendamper-deep@X` is always the backend `tokendamper@X` was measured with.
+ */
+describe('tokendamper-deep is a separate, publishable package (2.0.0)', () => {
+  const repoRoot = join(__dirname, '..', '..');
+  type Manifest = {
+    private?: boolean;
+    version: string;
+    files?: string[];
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+  };
+  const read = (p: string): Manifest => JSON.parse(readFileSync(join(repoRoot, p), 'utf8')) as Manifest;
+  const core = read('package.json');
+  const deep = read('packages/deep/package.json');
+
+  it('is public, and versioned in lockstep with core', () => {
+    expect(deep.private).toBeUndefined();
+    expect(deep.version).toBe(core.version);
+  });
+
+  it('ships its build, README and LICENSE only', () => {
+    expect(deep.files).toEqual(['dist', 'README.md', 'LICENSE']);
+    expect(existsSync(join(repoRoot, 'packages/deep/README.md'))).toBe(true);
+    expect(readFileSync(join(repoRoot, 'packages/deep/LICENSE'))).toEqual(readFileSync(join(repoRoot, 'LICENSE')));
+  });
+
+  it('declares core as an optional peer, so a workspace install never fetches an unpublished core', () => {
+    expect(deep.peerDependencies?.tokendamper).toBe(`^${String(core.version).split('.')[0]}.0.0`);
+    expect(deep.peerDependenciesMeta?.tokendamper?.optional).toBe(true);
+  });
+
+  it('keeps core free of runtime dependencies and of packages/', () => {
+    expect(core.dependencies).toBeUndefined();
+    expect((core.files ?? []).some((f) => f.startsWith('packages'))).toBe(false);
   });
 });

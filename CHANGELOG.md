@@ -11,6 +11,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Breaking
+- **`--mode` selects the engine: `fast` (default) or `deep`, on `optimize` only (DECISIONS §87).**
+  It used to take `optimize|bench`. `optimize` was the identity, and `bench` duplicated the
+  positional command.
+  - `--mode bench` and `--mode optimize` are now parse errors naming `tokendamper bench` and
+    `tokendamper optimize`. A script passing `--mode bench` is refused rather than quietly
+    optimizing.
+  - `--engine-mode` is withdrawn, and is a parse error naming `--mode fast|deep`.
+  - `--mode` on `bench` or `mcp` is refused, naming where it applies.
+- **`app.mode` and `TOKENDAMPER_APP_MODE` are withdrawn (DECISIONS §87).** Any value now loads, with
+  a one-line notice on stderr, where an unrecognised one used to be an error. Nothing ever read
+  either setting.
+- **The engine can be set in config:** `engine.mode` in `tokendamper.config.json`, or
+  `TOKENDAMPER_ENGINE_MODE`. `--mode` outranks the variable, which outranks the file. **A
+  configuration that resolves to `deep` makes `bench` and `mcp` refuse to start**, because neither
+  runs the deep engine, and the error names `TOKENDAMPER_ENGINE_MODE=fast` as the per-command
+  override.
+
+### Added
+- **`tokendamper-deep` is published alongside `tokendamper`, in the same version (DECISIONS §87).**
+  Install it next to `tokendamper` to use `--mode deep`, which is the only way C and C# reduce:
+  `npm install -g tokendamper tokendamper-deep`. Core keeps zero runtime dependencies. The parser
+  grammars are the deep package's, and it declares `tokendamper` as an optional peer. Without it,
+  `--mode deep` exits with an error naming the install command.
+
 ### Changed
 - **The repository moved to `ojassug/TokenDamper`.** `package.json`'s `repository` and `homepage`,
   and the README's `git clone` line, now point there. The old `Epichlo/TokenDamper` URL redirects
@@ -79,7 +104,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   traces for C and C# gain `symbolsBefore` and `parserBackendAnswered`.
 
 - **C and C# reduce under deep mode (DECISIONS §86).** With `tokendamper-deep` installed and
-  `--engine-mode deep`, function bodies in `.c`, `.h` and `.cs` files are elided. They come from
+  `--mode deep`, function bodies in `.c`, `.h` and `.cs` files are elided. They come from
   the same tree-sitter node tables the ceiling instrument measured, and the engine selects
   exactly what that instrument does on all 4,492 files compared. Fast mode does not reduce C or
   C#. At ratio 0.3 on the file route:
@@ -118,6 +143,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `asyncio` and on `anyio`, fallbacks are unchanged and adherence improves.
 
 ### Fixed
+- **Withdrawn `TOKENDAMPER_*` variables now say so.** The README documented
+  `TOKENDAMPER_RISK_TOLERANCE`, `_MAX_OUTPUT_TOKENS`, `_MAX_LATENCY_MS` (v1.2.0) and
+  `_TRACE_OUTPUT` (v1.6.1) as rejected, but only their flags were; each variable loaded silently.
+  Each now prints a one-line notice naming the version that withdrew it, as
+  `TOKENDAMPER_APP_MODE` does.
+
 - **The Gateway timeout file's other two header budgets also sat inside their own first byte's
   range.** The slow-body case's flake, fixed in v1.8.0, had siblings in the same file. All
   figures are from three concurrent full-suite runs, the load that reproduced it.

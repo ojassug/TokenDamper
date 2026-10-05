@@ -17,6 +17,38 @@ type MutableConfigFileShape = Omit<ConfigFileShape, 'budget' | 'configSchemaVers
 };
 
 /**
+ * `app.mode` and `TOKENDAMPER_APP_MODE` were withdrawn in 2.0.0 (DECISIONS §87). Nothing in the
+ * pipeline ever read `appMode`, and the one live effect — `--mode bench` rewriting the command —
+ * belonged to the CLI flag, which 2.0.0 gave to the engine. A file or environment that still sets
+ * either loads with a notice rather than failing, because withdrawing a key must not turn a
+ * configuration that worked yesterday into a startup error (`traceOutput` set the precedent).
+ */
+const APP_MODE_NOTICE =
+  'app.mode was withdrawn in 2.0.0 and is ignored. For the engine use engine.mode (fast|deep); for the benchmark run `tokendamper bench`.';
+const APP_MODE_ENV_NOTICE =
+  'TOKENDAMPER_APP_MODE was withdrawn in 2.0.0 and is ignored. For the engine use TOKENDAMPER_ENGINE_MODE (fast|deep).';
+
+/**
+ * Variables withdrawn before 2.0.0, with their flags. The flags have been parse errors since; the
+ * variables were documented as rejected too, but measured while writing DECISIONS §87 they loaded
+ * silently — nothing read them, and nothing said so. They now get `TOKENDAMPER_APP_MODE`'s notice.
+ */
+const EARLIER_WITHDRAWN_ENV: ReadonlyArray<readonly [string, string]> = [
+  ['TOKENDAMPER_RISK_TOLERANCE', 'v1.2.0'],
+  ['TOKENDAMPER_MAX_OUTPUT_TOKENS', 'v1.2.0'],
+  ['TOKENDAMPER_MAX_LATENCY_MS', 'v1.2.0'],
+  ['TOKENDAMPER_TRACE_OUTPUT', 'v1.6.1'],
+];
+
+function withdrawnEnvNotices(env: NodeJS.ProcessEnv): string[] {
+  const notices = env.TOKENDAMPER_APP_MODE !== undefined ? [APP_MODE_ENV_NOTICE] : [];
+  for (const [variable, version] of EARLIER_WITHDRAWN_ENV) {
+    if (env[variable] !== undefined) notices.push(`${variable} was withdrawn in ${version} and is ignored.`);
+  }
+  return notices;
+}
+
+/**
  * Loads and resolves the frozen configuration contract.
  */
 export function loadConfig(options: LoadConfigOptions = {}): TokenDamperConfig {
@@ -74,7 +106,8 @@ function applyFileConfig(base: TokenDamperConfig, fileConfig: ConfigFileShape | 
     configSchemaVersion: fileConfig.configSchemaVersion ?? base.configSchemaVersion,
     appName: fileConfig.app?.name ?? base.appName,
     appVersion: fileConfig.app?.version ?? base.appVersion,
-    appMode: fileConfig.app?.mode ?? base.appMode,
+    engineMode: fileConfig.engine?.mode ?? base.engineMode,
+    notices: fileConfig.app?.mode !== undefined ? [...base.notices, APP_MODE_NOTICE] : base.notices,
     planner: {
       defaultMode: fileConfig.planner?.defaultMode ?? base.planner.defaultMode,
     },
@@ -93,7 +126,10 @@ function applyFileConfig(base: TokenDamperConfig, fileConfig: ConfigFileShape | 
 function applyEnvOverrides(base: TokenDamperConfig, env: NodeJS.ProcessEnv): TokenDamperConfig {
   return freeze({
     ...base,
-    appMode: parseAppMode(env.TOKENDAMPER_APP_MODE) ?? base.appMode,
+    engineMode:
+      parseEnvEnum('TOKENDAMPER_ENGINE_MODE', env.TOKENDAMPER_ENGINE_MODE, ['fast', 'deep'] as const) ??
+      base.engineMode,
+    notices: [...base.notices, ...withdrawnEnvNotices(env)],
     planner: {
       defaultMode: parsePlannerMode(env.TOKENDAMPER_PLANNER_MODE) ?? base.planner.defaultMode,
     },
@@ -119,7 +155,7 @@ function applyCliOverrides(
 
   return freeze({
     ...base,
-    appMode: cliOverrides.appMode ?? base.appMode,
+    engineMode: cliOverrides.engineMode ?? base.engineMode,
     planner: {
       defaultMode: cliOverrides.plannerMode ?? base.planner.defaultMode,
     },
@@ -185,7 +221,7 @@ function buildBudgetOverridesFromEnv(env: NodeJS.ProcessEnv): Partial<TokenDampe
  * Reads an enumerated environment variable, and **rejects** an unrecognized value rather than
  * dropping it — audit L1.
  *
- * Each of the four parsers below used to return `undefined` for anything off its list, which
+ * Each of the enum parsers here used to return `undefined` for anything off its list, which
  * `?? base.x` then turned into "the default, silently". `TOKENDAMPER_PLANNER_MODE=session_dedup`
  * is the case the audit names, and it is the worst shape of it: `session_dedup` is a real
  * member of `OptimizationMode`, so a user setting it has every reason to think it took effect.
@@ -215,13 +251,6 @@ function parseEnvEnum<T extends string>(
   throw new Error(
     `Invalid value for ${variable}: ${JSON.stringify(value)}. Accepted values: ${accepted.join(', ')}.`,
   );
-}
-
-function parseAppMode(value: string | undefined): TokenDamperConfig['appMode'] | undefined {
-  // `explain` withdrawn — audit OX-H5. Nothing branched on it, so an unrecognised value here
-  // is a hard error by the rule v1.6.0 set for the `TOKENDAMPER_*` enums, and nothing that
-  // worked stops working because the setting never took effect.
-  return parseEnvEnum('TOKENDAMPER_APP_MODE', value, ['optimize', 'bench'] as const);
 }
 
 function parsePlannerMode(value: string | undefined): TokenDamperConfig['planner']['defaultMode'] | undefined {

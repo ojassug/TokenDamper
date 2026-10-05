@@ -129,13 +129,13 @@ export interface ResolvedConfig {
   readonly appName: string;
   readonly appVersion: string;
   /**
-   * Unconsumed by the pipeline. Nothing in `src/core/` branches on it.
+   * Unconsumed by the pipeline, and since 2.0.0 set by nothing but the default.
    *
-   * `--mode bench` does have an effect, but it is in the *parser* — it rewrites the command —
-   * not in anything that reads this field. The `explain` value was withdrawn from every input
-   * surface in audit OX-H5 (DECISIONS §62); the union keeps it for the same reason
-   * `OptimizationBudget` keeps its unconsumed fields, since `ARCHITECTURE.md` pins this model as
-   * frozen.
+   * `--mode bench` used to rewrite the command in the parser, which was the field's only live
+   * effect; 2.0.0 gave `--mode` to the engine and withdrew `app.mode` and `TOKENDAMPER_APP_MODE`
+   * with a notice (DECISIONS §87). `explain` went earlier, in audit OX-H5 (DECISIONS §62). The
+   * field stays for the same reason `OptimizationBudget` keeps its unconsumed fields, since
+   * `ARCHITECTURE.md` pins this model as frozen.
    */
   readonly appMode: AppMode;
   /**
@@ -251,8 +251,8 @@ export interface AstCoverage {
 /**
  * Whether a Deep backend actually answered for the items in this bundle.
  *
- * **This block exists because `--engine-mode deep` producing byte-identical output and
- * `--engine-mode deep` never having run are otherwise the same observation.** That confusion
+ * **This block exists because `--mode deep` producing byte-identical output and
+ * `--mode deep` never having run are otherwise the same observation.** That confusion
  * is invariant 10, which this project has recorded ten instances of; `astCoverage` (§23) and
  * `driftCoverage` (§33) are the two earlier answers to the same question, and this is the
  * third.

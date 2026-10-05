@@ -19,6 +19,7 @@ import { renderBenchTable } from './bench-table-renderer';
 import { startMcpServer } from '../adapters/mcp';
 import type { BenchmarkRunnerConfig } from '../bench/types';
 import type { ConfigOverrides } from '../config';
+import type { EngineMode } from '../core/parser/mode';
 
 /**
  * Runs the TokenDamper CLI with the provided arguments and IO streams.
@@ -40,19 +41,42 @@ export function runCli(
 ): number | Promise<number> {
   try {
     const parsed = parseArguments(argv, cwd);
+    let engineMode: EngineMode = 'fast';
 
-    if (parsed.engineMode === 'deep') {
+    if (parsed.command === 'optimize' || parsed.command === 'bench' || parsed.command === 'mcp') {
+      // Resolved once, here, so a withdrawn key's notice is written once per run and the engine
+      // is chosen by the precedence every other setting has: flag, environment, file, default
+      // (DECISIONS §87). Each branch below still loads its own copy; this one decides the engine.
+      const config = loadConfig({
+        cwd,
+        ...(parsed.configPath ? { configPath: parsed.configPath } : {}),
+        ...(parsed.configOverrides ? { cliOverrides: parsed.configOverrides } : {}),
+      });
+      for (const notice of config.notices) io.stderr.write(`tokendamper: ${notice}\n`);
+      engineMode = config.engineMode;
+      // bench's runner reads no engine mode and the MCP server registers no backends, so running
+      // either under a resolved `deep` would report a deep run that never happened (invariant 10).
+      // `--mode` is already refused on both; this is the same refusal for the file and env doors.
+      if (engineMode === 'deep' && parsed.command !== 'optimize') {
+        throw new Error(
+          `tokendamper: the engine resolves to deep (engine.mode or TOKENDAMPER_ENGINE_MODE), but ${parsed.command} runs the fast engine only. Set TOKENDAMPER_ENGINE_MODE=fast for this command, or remove engine.mode.`,
+        );
+      }
+    }
+
+    const resolved: ParsedArguments = engineMode === 'deep' ? { ...parsed, engineMode } : parsed;
+    if (engineMode === 'deep') {
       // Registration is the one place async work is allowed (`ParserAdapter` is otherwise
       // sync), so it happens here, before the pipeline runs.
       return registerDeepBackends()
-        .then(() => dispatch(parsed, io, cwd))
+        .then(() => dispatch(resolved, io, cwd))
         .catch((err: unknown) => {
           io.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
           return 1;
         });
     }
 
-    return dispatch(parsed, io, cwd);
+    return dispatch(resolved, io, cwd);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown TokenDamper error';
     io.stderr.write(`${message}\n`);
@@ -561,8 +585,12 @@ export interface ParsedArguments {
   readonly maxDrift?: number;
   /** `--keep-docstrings`: keep leading docstrings outside elided regions (Python only). */
   readonly keepDocstrings?: boolean;
-  /** `--engine-mode`: which parser backend answers. `fast` (default) or `deep`. */
-  readonly engineMode?: 'fast' | 'deep';
+  /**
+   * The resolved engine — `--mode`, then `TOKENDAMPER_ENGINE_MODE`, then `engine.mode`. Set by
+   * `runCli` after config resolves, never by the parser, which carries the flag in
+   * `configOverrides` like every other setting.
+   */
+  readonly engineMode?: EngineMode;
   /** `--language`: what the content is, declared by the caller. */
   readonly language?: string;
   /** `--input-name`: the filename stdin content would have had. Never opened. */
@@ -599,8 +627,9 @@ export interface ParsedArguments {
  * `ResolvedConfig`, where nothing read it. The trace goes out through a literal
  * `io.stderr.write(...)`, so `--trace-output stdout` reported success and changed nothing, and a
  * caller redirecting it to capture a trace in a pipe concluded the tool had ignored them. It had.
- * `--mode` lost its `explain` value in the same change, for the same reason; `bench` and
- * `optimize` stay because `bench` routes to the bench command.
+ * `--mode` lost its `explain` value in the same change, for the same reason. **2.0.0 withdrew
+ * `optimize` and `bench` as well (DECISIONS §87)** — the identity and a duplicate of the
+ * positional command — and gave the name to the engine, which `--engine-mode` had carried.
  *
  * `--target-reduction-ratio` was called out here as "nearly as inert — the planner reads it only
  * as `> 0`". **That has not been true since DECISIONS §48**, which resolved it against the input
@@ -610,7 +639,6 @@ export interface ParsedArguments {
  */
 const COMMON_FLAGS = [
   '--config',
-  '--mode',
   '--planner-mode',
   '--minimum-confidence',
   '--log-level',
@@ -627,18 +655,14 @@ export const SUPPORTED_FLAGS: Readonly<Record<'optimize' | 'bench' | 'mcp', Read
     '--max-debt',
     '--max-drift',
     '--keep-docstrings',
-    '--engine-mode',
+    '--mode',
     '--language',
     '--input-name',
   ]),
-  // `--engine-mode` is deliberately absent here. `src/bench/runner.ts` calls
-  // `optimize(request, { tokenHasher })` with no mode, so accepting the flag on `bench` today
-  // would register deep backends (and could hard-fail if `packages/deep` is unbuilt) while the
-  // benchmark itself still measured fast mode — a flag with a side effect and a possible error,
-  // but not the behaviour its name promises. That is worse than the inert-dial shape
-  // `--minimum-confidence`/`--max-debt` are documented as (M13): those do nothing at all, which
-  // is at least honest. Add `--engine-mode` back here in the same change that threads
-  // `engineMode` into `BenchmarkRunnerConfig`/`runner.ts` — not before.
+  // `--mode` (the engine) is optimize-only. `src/bench/runner.ts` never reads an engine mode, and
+  // the MCP server registers no backends, so accepting `--mode deep` on either would report a
+  // deep run that never happened (invariant 10). Deep through bench or MCP is closed as not done
+  // in DECISIONS §88.
   bench: new Set([...COMMON_FLAGS, '--report-json', '--quiet', '--evaluate-quality']),
   mcp: new Set(COMMON_FLAGS),
 };
@@ -670,7 +694,7 @@ export function parseArguments(argv: readonly string[], cwd: string): ParsedArgu
   void cwd;
 
   const args = [...argv];
-  let command = args.shift();
+  const command = args.shift();
 
   if (command === 'exec') {
     // Drop optional '--' separator if present. Everything after it belongs to the child
@@ -723,14 +747,13 @@ export function parseArguments(argv: readonly string[], cwd: string): ParsedArgu
   let maxDebt: number | undefined;
   let maxDrift: number | undefined;
   let keepDocstrings = false;
-  let engineMode: 'fast' | 'deep' = 'fast';
   let reportJsonPath: string | undefined;
   let evaluateQuality = false;
   let quiet = false;
   let language: string | undefined;
   let inputName: string | undefined;
-  // Recorded as encountered, checked against the command once parsing is done — `--mode bench`
-  // can still change `command` from inside this loop, so the verdict cannot be reached early.
+  // Recorded as encountered, checked against the command once parsing is done, so a refusal
+  // names every offending flag at once rather than the first one met.
   const seenFlags = new Set<string>();
 
   while (args.length > 0) {
@@ -748,16 +771,26 @@ export function parseArguments(argv: readonly string[], cwd: string): ParsedArgu
 
     if (flag === '--mode') {
       const value = args.shift();
-      // `explain` was accepted here and nothing anywhere branched on it — audit OX-H5. Only
-      // `bench` has an effect at all (it routes to the bench command); `optimize` is the identity.
-      if (value === 'optimize' || value === 'bench') {
-        configOverrides.appMode = value;
-        if (value === 'bench') {
-          command = 'bench';
-        }
+      if (value === 'fast' || value === 'deep') {
+        // Into the config layers rather than straight onto the result, so the flag outranks
+        // `TOKENDAMPER_ENGINE_MODE` and `engine.mode` by the loader's one precedence rule.
+        configOverrides.engineMode = value;
         continue;
       }
-      throw new Error('Invalid value for --mode. Accepted values: optimize, bench.');
+      if (value === 'optimize' || value === 'bench') {
+        // 2.0.0 (DECISIONS §87): `optimize` was the identity and `bench` duplicated the positional
+        // command, so the name was freed for the engine. A parse error naming the replacement,
+        // never a silent reinterpretation — a script passing `--mode bench` must not start
+        // optimizing instead.
+        throw new Error(
+          `--mode ${value} was withdrawn in 2.0.0; run \`tokendamper ${value} …\` instead. --mode now selects the engine: fast (default) or deep.`,
+        );
+      }
+      throw new Error('Invalid value for --mode. Accepted values: fast, deep.');
+    }
+
+    if (flag === '--engine-mode') {
+      throw new Error('--engine-mode was withdrawn in 2.0.0; use --mode fast|deep.');
     }
 
     if (flag === '--report-json') {
@@ -861,15 +894,6 @@ export function parseArguments(argv: readonly string[], cwd: string): ParsedArgu
 
     if (flag === '--keep-docstrings') {
       keepDocstrings = true;
-      continue;
-    }
-
-    if (flag === '--engine-mode') {
-      const value = args.shift();
-      if (value !== 'fast' && value !== 'deep') {
-        throw new Error('Invalid value for --engine-mode. Accepted values: fast, deep.');
-      }
-      engineMode = value;
       continue;
     }
 
@@ -996,7 +1020,6 @@ export function parseArguments(argv: readonly string[], cwd: string): ParsedArgu
     ...(maxDebt !== undefined ? { maxDebt } : {}),
     ...(maxDrift !== undefined ? { maxDrift } : {}),
     ...(keepDocstrings ? { keepDocstrings } : {}),
-    ...(engineMode === 'deep' ? { engineMode } : {}),
     configOverrides: resolvedOverrides,
   };
 }

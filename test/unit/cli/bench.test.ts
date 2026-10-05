@@ -203,17 +203,18 @@ describe('CLI Bench Subcommand & Renderer', () => {
       expect(jsonReport.sweepResults[0]?.budget.targetReductionRatio).toBe(0.4);
     });
 
-    it('executes bench mode via --mode bench flag', () => {
-      const stdoutChunks: string[] = [];
+    it('no longer reaches bench through --mode bench, and names the command that does (2.0.0)', () => {
+      // `--mode bench` rewrote `optimize` into `bench` until 2.0.0 freed `--mode` for the engine
+      // (DECISIONS §87). Silently optimizing instead would hand a script the wrong report, so the
+      // spelling is a parse error naming `tokendamper bench`, and nothing runs.
+      const stderrChunks: string[] = [];
       const mockIo = {
-        stdout: {
+        stdout: { write: () => true } as never,
+        stderr: {
           write: (chunk: unknown) => {
-            stdoutChunks.push(String(chunk));
+            stderrChunks.push(String(chunk));
             return true;
           },
-        } as never,
-        stderr: {
-          write: () => true,
         } as never,
       };
 
@@ -223,9 +224,9 @@ describe('CLI Bench Subcommand & Renderer', () => {
         process.cwd(),
       );
 
-      expect(exitCode).toBe(0);
-      expect(stdoutChunks.join('')).toContain('TokenDamper Benchmark Execution Report');
-      expect(existsSync(tempReportPath)).toBe(true);
+      expect(exitCode).toBe(1);
+      expect(stderrChunks.join('')).toContain('tokendamper bench');
+      expect(existsSync(tempReportPath)).toBe(false);
     });
   });
 });

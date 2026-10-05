@@ -23,6 +23,10 @@ import { loadConfig } from '../../../src/config/load';
  *
  * The two halves that are *not* withdrawn are pinned here as well, because they are what makes
  * this a withdrawal rather than a deletion.
+ *
+ * **2.0.0 withdrew the rest of `--mode`'s old values, and `--engine-mode` with them** (DECISIONS
+ * §87). `--mode` now selects the engine, `fast|deep`; `test/unit/cli/mode-flag.test.ts` pins the
+ * parse errors that name each replacement.
  */
 describe('withdrawn dead knobs', () => {
   const io = () => {
@@ -82,51 +86,41 @@ describe('withdrawn dead knobs', () => {
       expect(err.join('')).toContain('--mode');
     });
 
-    it('rejects TOKENDAMPER_APP_MODE=explain rather than ignoring it', () => {
-      // v1.6.0 established this direction for the `TOKENDAMPER_*` enums: an unrecognised value is
-      // a hard error, and nothing that worked stops working, because the setting never took
-      // effect in the first place.
-      expect(() => loadConfig({ cwd: dir(), env: { TOKENDAMPER_APP_MODE: 'explain' } })).toThrow(
-        /TOKENDAMPER_APP_MODE/,
-      );
+    // Until 2.0.0 these two were hard errors, the direction v1.6.0 set for the `TOKENDAMPER_*`
+    // enums. 2.0.0 withdrew the setting itself (DECISIONS §87): any value now loads, with a notice
+    // naming the replacement, because nothing reads it and failing a startup over it would turn a
+    // configuration that worked yesterday into an error. `config-engine-mode.test.ts` pins the
+    // notice.
+    it('loads TOKENDAMPER_APP_MODE=explain with a notice rather than an error (2.0.0)', () => {
+      const config = loadConfig({ cwd: dir(), env: { TOKENDAMPER_APP_MODE: 'explain' } });
+      expect(config.notices.join('\n')).toContain('TOKENDAMPER_APP_MODE was withdrawn in 2.0.0');
     });
 
-    it('rejects app.mode: explain in a config file', () => {
+    it('loads app.mode: explain in a config file with a notice (2.0.0)', () => {
       const cwd = dir();
       const configPath = join(cwd, 'tokendamper.config.json');
       writeFileSync(configPath, JSON.stringify({ app: { mode: 'explain' } }), 'utf8');
 
-      expect(() => loadConfig({ cwd, configPath })).toThrow(/Invalid TokenDamper config file/);
+      expect(loadConfig({ cwd, configPath }).notices.join('\n')).toContain('app.mode was withdrawn in 2.0.0');
     });
   });
 
   describe('what is deliberately kept', () => {
-    it('keeps --mode bench, which is the half that does something', () => {
-      // `--mode bench` sets `command = 'bench'`. That is a live effect, so `--mode` is withdrawn
-      // by *value* rather than removed — the audit named `explain`, and only `explain`.
-      //
-      // Asserting the *parse*, not the run: `bench` shells out to `python` to evaluate fixture
-      // code (audit OX-M15, still open), so whether it exits 0 depends on the machine. What this
-      // pins is that `bench` is still an accepted value and still routes there.
-      const { err, io: streams } = io();
-      expect(SUPPORTED_FLAGS.optimize.has('--mode')).toBe(true);
-
-      runCli(['--mode', 'bench', '--quiet'], streams, dir());
-      expect(err.join('')).not.toContain('Invalid value for --mode');
-    });
-
-    it('still accepts --mode optimize', () => {
-      const { err, io: streams } = io();
-      const cwd = dir();
-      runCli(['optimize', input(cwd), '--mode', 'optimize'], streams, cwd);
-
-      expect(err.join('')).not.toContain('Invalid value for --mode');
-    });
-
     it('keeps TOKENDAMPER_APP_MODE=bench and =optimize', () => {
       for (const mode of ['optimize', 'bench']) {
         expect(() => loadConfig({ cwd: dir(), env: { TOKENDAMPER_APP_MODE: mode } })).not.toThrow();
       }
     });
+  });
+});
+
+describe('--engine-mode and the old --mode values (2.0.0)', () => {
+  it('are absent from every command in the flag table', () => {
+    for (const command of ['optimize', 'bench', 'mcp'] as const) {
+      expect(SUPPORTED_FLAGS[command].has('--engine-mode')).toBe(false);
+    }
+    expect(SUPPORTED_FLAGS.optimize.has('--mode')).toBe(true);
+    expect(SUPPORTED_FLAGS.bench.has('--mode')).toBe(false);
+    expect(SUPPORTED_FLAGS.mcp.has('--mode')).toBe(false);
   });
 });

@@ -25,7 +25,9 @@ describe('config loading', () => {
         app: {
           name: 'FromFile',
           version: '9.9.9',
-          mode: 'bench',
+        },
+        engine: {
+          mode: 'deep',
         },
         planner: {
           defaultMode: 'pass_through',
@@ -44,13 +46,13 @@ describe('config loading', () => {
       cwd,
       configPath,
       env: {
-        TOKENDAMPER_APP_MODE: 'bench',
+        TOKENDAMPER_ENGINE_MODE: 'deep',
         TOKENDAMPER_PLANNER_MODE: 'pass_through',
         TOKENDAMPER_MINIMUM_CONFIDENCE: '0.9',
         TOKENDAMPER_LOG_LEVEL: 'warn',
       },
       cliOverrides: {
-        appMode: 'optimize',
+        engineMode: 'fast',
         plannerMode: 'pass_through',
         minimumConfidence: 1,
         logLevel: 'info',
@@ -59,7 +61,8 @@ describe('config loading', () => {
 
     expect(config.appName).toBe('FromFile');
     expect(config.appVersion).toBe('9.9.9');
-    expect(config.appMode).toBe('optimize');
+    // The engine took `app.mode`'s place as the mode setting in 2.0.0 (DECISIONS §87).
+    expect(config.engineMode).toBe('fast');
     // `traceOutput` is no longer overridable from any surface (audit OX-H5) -- it keeps its
     // default, which is where the trace has always actually gone.
     expect(config.traceOutput).toBe('stderr');

@@ -117,7 +117,7 @@ export function optimize(
     // `tokenHashingOptions` carries the (optional) store, `keepDocstrings` and `engineMode`, so
     // it is built whenever *any* is present — the CLI supplies no hasher but can still ask for
     // docstrings to be kept or for deep mode, either of which the old `tokenHasher ? …` guard
-    // would have dropped. Without `engineMode` in this guard, `--engine-mode deep` with no
+    // would have dropped. Without `engineMode` in this guard, `--mode deep` with no
     // hasher and no `--keep-docstrings` — the commonest CLI shape — would build no options
     // object at all, and deep mode would silently do nothing.
     const tokenHashingOptions: TokenHashingStageOptions | undefined =
