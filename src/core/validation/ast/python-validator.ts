@@ -26,6 +26,10 @@ export class PythonValidator implements AstValidator {
     const indentStack: number[] = [0];
     let expectIndent = false;
     let lastColonLine = 0;
+    // Explicit line joining: a line ending in a backslash that is code (not inside a string, not
+    // in a comment) continues onto the next physical line, whose indentation means nothing. It was
+    // checked anyway until DECISIONS §88, flagging valid code in 4 of CPython asyncio's 30 files.
+    let joinsPreviousLine = false;
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const lineNum = lineIndex + 1;
@@ -42,8 +46,9 @@ export class PythonValidator implements AstValidator {
       const trimmedLine = rawLine.slice(charIdx);
       const isBlankOrCommentLine = trimmedLine.length === 0 || trimmedLine.startsWith('#');
 
-      // Check indentation rules when outside triple quotes and outside open brackets
-      if (activeStringQuote === null && bracketStack.length === 0 && !isBlankOrCommentLine) {
+      // Check indentation rules when outside triple quotes, outside open brackets, and at the start
+      // of a logical line rather than on one an explicit `\` continued
+      if (activeStringQuote === null && bracketStack.length === 0 && !isBlankOrCommentLine && !joinsPreviousLine) {
         const topIndent = indentStack[indentStack.length - 1] ?? 0;
 
         if (expectIndent) {
@@ -86,6 +91,7 @@ export class PythonValidator implements AstValidator {
       let colNum = charIdx + 1;
       let i = charIdx;
       let lineEndsWithColon = false;
+      let lineEndsInComment = false;
 
       while (i < rawLine.length) {
         const c = rawLine[i];
@@ -117,6 +123,7 @@ export class PythonValidator implements AstValidator {
         // Outside string literal
         if (c === '#') {
           // Comment starts, ignore rest of line
+          lineEndsInComment = true;
           break;
         }
 
@@ -199,6 +206,10 @@ export class PythonValidator implements AstValidator {
         expectIndent = true;
         lastColonLine = lineNum;
       }
+
+      // A backslash inside a string continues the *string*, which `activeStringQuote` already
+      // carries, and one in a comment continues nothing.
+      joinsPreviousLine = activeStringQuote === null && !lineEndsInComment && rawLine.endsWith('\\');
     }
 
     // EOF checks
