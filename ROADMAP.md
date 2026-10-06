@@ -12,8 +12,13 @@
 >
 > **Every section below marked *held* or *unnumbered* is closed, not done.** §89 gives each one's
 > reason and what would have unblocked it. Nothing was deleted to make the end look tidy, because
-> an item in no table reads as done (§55). What consumers get is what the registry serves: check
-> `npm view tokendamper version`, not the tag list.
+> an item in no table reads as done (§55).
+>
+> **Both packages are on npm at 2.0.0, so R4 is closed on the registry.** `npm view` reads
+> **2.0.0**, `latest`, for `tokendamper` and `tokendamper-deep` as of 2026-10-05, verified against
+> the tag and not only by the number: each published `gitHead` is the `v2.0.0` commit, and each
+> package's `dist` is byte-identical to a local build of the tag. What consumers get is what the
+> registry serves: check `npm view tokendamper version`, not the tag list.
 
 **The release before it:** **v1.8.0** — *cut 2026-09-24; it reaches consumers when the registry says so, not
 when the tag exists.* It ships **R2 and R3 together**: the constraint gate stops firing on
@@ -134,6 +139,7 @@ v1.1.0 (tag @ 807f6f0) — never published to npm
                     C and C# reduce under deep; tokendamper-deep is published;
                     --mode fast|deep, with --mode optimize|bench and
                     --engine-mode withdrawn. A major signals BREAKING — §53
+                    On npm 2026-10-05: `npm view` reads 2.0.0 for both packages.
 
   closed, not done — §89 (was held) — MCP over Streamable HTTP/SSE ·
        LiteLLM guardrail · Prometheus
@@ -719,6 +725,11 @@ measured on two corpora with its own fallback rate (§84–§86). `tokendamper-d
 — C and C# chosen by §82's measurement, §83's Python fix, and §86 and §88 found along the way — the
 DECISIONS entries carry the reason.
 
+**Published 2026-10-05:** `npm view` reads **2.0.0**, `latest`, for `tokendamper` and
+`tokendamper-deep`. Each published `gitHead` is the `v2.0.0` commit, and each package's `dist` is
+byte-identical to a local build of the tag — the directory check and the artifact check, both
+passed for both packages.
+
 `tokendamper-deep` ships, N new languages reduce, and the flag surface is rationalized. See the
 v2.0.0 section below for what breaks.
 
@@ -900,15 +911,15 @@ remediation track was inserted. Corrected below; the numbering now matches the c
 | v1.6.0 | Prior release | §54 M7 (wire bytes + wire metrics) · §55 the LOW table · §57 the block-hash false positive | 576/576 rows identical; 677 tests green | Shipped 2026-08-16 |
 | v1.6.1 | Prior release | §59–§61 Go elides · §62 two withdrawn dials · §64 `debtScore` measures · §65–§68 four Gateway defects · §63/§69 the float pool and the OX LOW table | 574/574 rows identical on the main corpus; application Go 27.46% | Tagged 2026-08-30 — GitHub release only, never published to npm |
 | v1.7.0 | Prior release | §70 — the last four OX findings: bench stops executing dataset code (M15), an exposed bind must be authenticated (M8), Origin/Host validation (M9 + L13), two inert dials documented (M13) | `oxaudit.md` closed in full; 95 files / 859 tests green | Shipped 2026-09-01 |
-| v1.7.1 · v1.7.2 | Prior releases | A test fix; then the build narrows to `tsconfig.build.json` while typecheck stays on `tsconfig.json` | Package 508 → 223 entries, 3.08 → 1.65 MB | Shipped 2026-09-01 — **v1.7.2 is what npm serves** |
+| v1.7.1 · v1.7.2 | Prior releases | A test fix; then the build narrows to `tsconfig.build.json` while typecheck stays on `tsconfig.json` | Package 508 → 223 entries, 3.08 → 1.65 MB | Shipped 2026-09-01 — **v1.7.2 was npm `latest` until 2026-09-19** |
 | v1.7.3 | Prior release | §71 — `symbolBearingItems` counts symbols; a trace field moves on 254 of 580 rows | `outputSha` identical on all 580 | Tagged 2026-09-01 — never published on its own; ships inside v1.7.4 |
-| **v1.7.4** | **R1 — ship the backlog** | The 2026-08-30 security remediation, §73–§74 (S-01–S-04) · three `oxaudit.md` tooling items · the README restructure · v1.7.3 carried with it | No corpus run — R1 adds no code | **Cut 2026-09-19.** A patch over moved output, by explicit call; publish is the user's step |
+| **v1.7.4** | **R1 — ship the backlog** | The 2026-08-30 security remediation, §73–§74 (S-01–S-04) · three `oxaudit.md` tooling items · the README restructure · v1.7.3 carried with it | No corpus run — R1 adds no code | **Cut and published 2026-09-19.** A patch over moved output, by explicit call |
 | **v1.8.0** | **R2 — a trustworthy instrument** | **DONE 2026-09-19.** Latency harness (§76) · Axis A shipped (§77 — 10 files recovered, 0 new fallbacks, retention 100%) · Axis B closed without implementing (§78 — ceiling 1 file of 188) | Retention side at 100%; a pinned latency baseline | **Exit met.** R3 unblocked · **Cut and published 2026-09-24** with R3 |
 | **v1.8.0** | **R3 — the seam** | **DONE 2026-09-23.** `ParserAdapter` + Deep on **3** live languages (JS unresolvable); `--engine-mode deep` | Steps 1–2 byte-identical; step 3 classified — 540/594 identical, python 17.75%→22.26%, adherence 12→20 rows on target | **Exit met, 2 deviations (§81).** Deep cannot validate its own elision marker, so `validationMode` is a separate axis defaulting to fast · **Cut and published 2026-09-24** with R2 |
 | *unnumbered* | Selection quality | BM25 + graph hybrid scorer, dual-path MMR | `<10ms` pipeline selection | **Closed, not done — §89.** Both preconditions measured false, and neither came true |
 | ~~*unnumbered*~~ | ~~Folding & cache~~ | **Split 2026-09-09.** Folding → the R1–R4 spine (Deep is coverage, not precision); `cache_control` → Milestone 8 | — | ↪ **Replaced.** Fast was already shipped in `elision/regions.ts` |
 | *held* | Retrieval | `rehydrate_context` with sub-query matching | Targeted line extraction | **Closed, not done — §89.** Unblocked by M5b; the response shape was never designed |
-| **v2.0.0** | **Deep mode** | `tokendamper-deep` ships; N languages reduce; `--mode fast\|deep` takes the name and the old `--mode optimize\|bench` is withdrawn | Per language: measured ceiling on **two** corpora + its own fallback rate | **Cut 2026-10-05 — the final release.** C and C# reduce under deep, each on two corpora with its own fallback rate (§84–§86) |
+| **v2.0.0** | **Deep mode** | `tokendamper-deep` ships; N languages reduce; `--mode fast\|deep` takes the name and the old `--mode optimize\|bench` is withdrawn | Per language: measured ceiling on **two** corpora + its own fallback rate | **Cut and published 2026-10-05 — the final release.** C and C# reduce under deep, each on two corpora with its own fallback rate (§84–§86) |
 | *held* | Ecosystem | Streamable HTTP/SSE MCP, LiteLLM plugin, Prometheus metrics | High-throughput multi-agent proxy | **Closed, not done — §89.** Moved off v2.0.0. MCP-over-HTTP had no premise problem; the other two instrument a path saving 0 bytes cross-turn (invariant 8) |
 | Milestone 8 | Caching | MCP Schema Deduplication & Cache-Aligned Knapsack | 100% Provider Cache Hit Rates | **Closed, not done — §89.** A answered — knapsack reachable; needs an exact tokenizer |
 | Milestone 9 | Guardrails | Agent Loop Circuit Breaking & Critical Atom Recall Tracking | $S_k \le 0.40$ enforcement | **Closed, not done — §89.** C1 + H6 both shipped; re-derive against the current metric |

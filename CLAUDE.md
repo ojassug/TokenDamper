@@ -198,9 +198,16 @@ nothing is scheduled after it.** Every item that was held, left unscheduled, or 
 and recorded rather than fixed is closed in §89 as *not done*, with what would have unblocked it.
 Read §89 before reopening anything. The record lives in DECISIONS §1–§89,
 `docs/audit-remediation-status.md` (the measured baseline), `CHANGELOG.md` and `ROADMAP.md`, which
-keeps every held entry marked closed. **The npm publishes of `tokendamper` and `tokendamper-deep`
-are the user's step.** Check `npm view tokendamper version --prefer-online` before saying what
-consumers get, because this file has been wrong about that before.
+keeps every held entry marked closed. **Both packages are on the registry at 2.0.0** — `npm view`
+reads 2.0.0, `latest`, for `tokendamper` and `tokendamper-deep` as of 2026-10-05, verified
+2026-10-06 against the tag rather than by the number: each published `gitHead` is the `v2.0.0`
+commit, and each package's `dist` is byte-identical to a local build of the tag.
+`tokendamper-deep` also lists a `0.0.0-stage` version: a 338-byte registry stub (`stub: true`,
+described by the registry as a placeholder for staged publishing) created two minutes before
+2.0.0. It carries no dist-tag, and semver leaves a prerelease out of any range that does not
+itself name a `0.0.0` prerelease, so neither a plain install nor a caret range reaches it. Check
+`npm view tokendamper version --prefer-online` before saying what consumers get, because this
+file has been wrong about that before.
 
 **The plan was `docs/superpowers/specs/2026-09-09-tokendamper-v2-roadmap-design.md`, decided in
 DECISIONS §75, scheduled in `ROADMAP.md`.** Four releases, named rather than numbered (§53):
@@ -252,7 +259,7 @@ DECISIONS §75, scheduled in `ROADMAP.md`.** Four releases, named rather than nu
     `FUNCTION_HEADER` regex cannot match. Net fallbacks fell, 8 recovered against 5 new.
   - `Parser.init()` plus four grammars is **~22ms per process**, answering §75's concern that it
     might make Deep unusable at the CLI. `topology-pruner` is 98% of cold engine time.
-- **R4 — CLOSED 2026-10-05, cut as v2.0.0, the final release.** Design
+- **R4 — CLOSED 2026-10-05, cut and published as v2.0.0, the final release.** Design
   `docs/superpowers/specs/2026-10-04-r4-c-csharp-and-v2-release-design.md`, plan beside it in
   `docs/superpowers/plans/`.
   - **C and C# reduce under `--mode deep` only** (§84–§86), from `tokendamper-deep`'s tree-sitter

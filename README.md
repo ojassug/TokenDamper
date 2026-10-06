@@ -933,16 +933,22 @@ from a stub provider was demonstrated delivering `x-api-key` to a stand-in metad
 
 ## Project state
 
-**v1.7.3**, tagged and released on GitHub. The npm `latest` tag is currently **1.7.2** — in this
-project a tag does not imply a registry version, so check `npm view tokendamper version` rather
-than the tag list.
+**v2.0.0 is the final release**, tagged and released on GitHub on 2026-10-05. Nothing is scheduled
+after it. Both packages are on npm at **2.0.0**, `latest`: `tokendamper` and the optional
+`tokendamper-deep`. That was checked against the tag rather than by the number — each published
+`gitHead` is the `v2.0.0` commit, and each package's `dist` is byte-identical to a local build of
+the tag. In this project a tag does not imply a registry version, so check
+`npm view tokendamper version` rather than the tag list.
 
-- **~17.5k lines** of strict TypeScript, CommonJS, **zero runtime dependencies**.
-- **938 tests** across 99 files (vitest), plus a property/fuzz suite and three stress suites. CI
-  runs typecheck, lint, build and test on Node 20, 22 and 24.
-- **Coverage** over `src/**`: statements 92.54%, branches 87.20%, functions 97.01%. Reporting only,
-  and deliberately not a gate — a coverage threshold rewards deleting exactly the characterization
-  tests this repository depends on.
+- **~19.5k lines** of strict TypeScript in `src/`, CommonJS, **zero runtime dependencies**. The
+  optional `tokendamper-deep` is 918 lines more, and depends on `web-tree-sitter` and six grammar
+  packages.
+- **1,283 tests** across 119 files (vitest), 1,281 passing and 2 skipped at the tag, including a
+  property/fuzz suite and three stress suites. CI runs typecheck, lint, build and test on Node 20,
+  22 and 24.
+- **Coverage** over `src/**` at v2.0.0: statements 92.53%, branches 88.08%, functions 97.05%.
+  Reporting only, and deliberately not a gate — a coverage threshold rewards deleting exactly the
+  characterization tests this repository depends on.
 - **Architecture rules are linted, not merely described.** Only `stage-registry` may value-import a
   concrete stage; `src/core` and `src/stages` may not import from `adapters/`, `cli/` or
   `gateway/`. Both rules were verified by planting the violation they should catch, because a
@@ -972,17 +978,23 @@ leaving every other route open.
 | File | What it is |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Canonical and **frozen**. Describes what must be implemented, not what should be redesigned. |
-| [`DECISIONS.md`](DECISIONS.md) | 74 architectural decisions, each with the measurement that settled it. The primary record. |
+| [`DECISIONS.md`](DECISIONS.md) | 89 architectural decisions, each with the measurement that settled it. The primary record, closed by §89. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Every behavioral change, cited to its decision. |
-| [`ROADMAP.md`](ROADMAP.md) | What is next. Reserves **no version numbers** — a number is a fact about what shipped, assigned at ship time. |
+| [`ROADMAP.md`](ROADMAP.md) | How the project reached v2.0.0, release by release. Every held item is still listed, marked closed and pointing at DECISIONS §89. |
 | [`docs/audit-remediation-status.md`](docs/audit-remediation-status.md) | Current audit state, the measured baseline, and the traps this codebase has for anyone changing it. Start here for audit work. |
 | [`docs/retired-documents.md`](docs/retired-documents.md) | Twelve narrative documents retired into git history, mapped to where their conclusions now live. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | The usual. |
 
-### What is next, and what was ruled out by measurement
+### Nothing is scheduled after v2.0.0
 
-Two headline candidates **failed their preconditions when measured**, and that is recorded rather
-than discovered again:
+[DECISIONS.md §89](DECISIONS.md#89-tokendamper-is-complete-every-held-item-closed-as-not-done)
+closes every item that was held, left unscheduled, or found during the last release as **not
+done**, and says for each one why it was held and what would have unblocked it. Nothing was deleted
+to make the end look tidy, because an item in no table reads as done. Read it before reopening
+anything.
+
+Two of them were not held for lack of time: both **failed their preconditions when measured**, and
+that is recorded rather than discovered again:
 
 - **BM25 hybrid scoring has no input.** There is no query concept anywhere in `src/` — no entry
   mode carries one, and `tokendamper optimize ./src` has no prompt at all. Scoring "against the
@@ -992,9 +1004,7 @@ than discovered again:
   exceed 0.90. Maxima are 0.296 and 0.500. The instrument was validated first (identical files →
   1.000, one-line edit → 0.998, disjoint prose → 0.000), so the zeros are real.
 
-Both would be ~1,000 lines of correct code with no observable effect. Candidates whose
-preconditions *do* hold: widening elision beyond TypeScript/Python/Go (measured, 3 of 17 languages
-were reducible before Go made it 4), and per-item drift.
+Both would be ~1,000 lines of correct code with no observable effect.
 
 ---
 
